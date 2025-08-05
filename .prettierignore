@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.meteor/
+packages/**/node_modules/
+packages/**/.npm/
+
+# Build outputs
+.meteor/local/
+build/
+dist/
+
+# Settings and config
+settings.json
+
+# Generated files
+*.min.js
+*.min.css
+
+# Package files
+package-lock.json
+yarn.lock

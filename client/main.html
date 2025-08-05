@@ -5,7 +5,8 @@
 <body>
   <h1>Test the MeteorS3 package</h1>
   <p>
-    Try uploading a file using the form below. The file will be uploaded to S3 and the URL will be displayed.
+    Try uploading a file using the form below. The file will be uploaded to S3
+    and the URL will be displayed.
   </p>
 
   <em id="server-render-target"></em>
@@ -14,7 +15,7 @@
   <div class="upload-section">
     <h2>Upload File</h2>
     <form id="upload-form" enctype="multipart/form-data">
-      <input type="file" name="file" required>
+      <input type="file" name="file" required />
       <button type="submit">Upload</button>
     </form>
     <div id="upload-status"></div>
@@ -24,7 +25,7 @@
   <!-- File Download Section -->
   <div class="download-section">
     <h2>Download File</h2>
-    <input type="text" id="file-id-input" placeholder="Enter file ID">
+    <input type="text" id="file-id-input" placeholder="Enter file ID" />
     <button id="download-btn">Download</button>
     <div id="download-status"></div>
   </div>
@@ -32,7 +33,11 @@
   <!-- File Remove Section -->
   <div class="remove-section">
     <h2>Remove File</h2>
-    <input type="text" id="remove-file-id-input" placeholder="Enter file ID to remove">
+    <input
+      type="text"
+      id="remove-file-id-input"
+      placeholder="Enter file ID to remove"
+    />
     <button id="remove-btn">Remove File</button>
     <div id="remove-status"></div>
   </div>

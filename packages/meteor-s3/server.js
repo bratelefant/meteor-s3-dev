@@ -30,7 +30,7 @@ function generateValidBucketName(instanceName) {
     .replace(/-+$/, "") // abschließende - entfernen
     .replace(/--+/g, "-"); // doppelte -- zu einem -
 
-  const randomSuffix = Random.id(6).toLowerCase(); // z. B. "a9x7kq"
+  const randomSuffix = Random.id(6).toLowerCase(); // z.B. "a9x7kq"
   const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
 
   return baseName.substring(0, 63); // max 63 Zeichen laut S3-Regeln
@@ -63,12 +63,12 @@ export class MeteorS3 {
         );
       });
     // Initialize empty hooks. Override these in your app to add custom behavior.
-    this.onBeforeUpload = async (fileDoc) => {};
-    this.onAfterUpload = async (fileDoc) => {};
+    this.onBeforeUpload = async () => {};
+    this.onAfterUpload = async () => {};
     // actions are "upload", "download" or "delete"
     this.onCheckPermissions =
       this.config.onCheckPermissions ||
-      (async (fileDoc, action, userId, context) => {
+      (async (fileDoc, action, _userId, _context) => {
         // Default implementation always denies access
         console.warn(
           `No permission check function provided. Defaulting to deny all actions for file ${fileDoc._id} and action "${action}".`
@@ -565,6 +565,7 @@ export class MeteorS3 {
    */
   log(...args) {
     if (this.config.verbose) {
+      // eslint-disable-next-line no-console
       console.log(`MeteorS3::[${this.config.name}]`, ...args);
     }
   }

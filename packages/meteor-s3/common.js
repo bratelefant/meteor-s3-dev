@@ -138,6 +138,7 @@ export class MeteorS3Client {
    */
   log(...args) {
     if (this.config.verbose) {
+      // eslint-disable-next-line no-console
       console.log(`MeteorS3::[${this.config.name}]`, ...args);
     }
   }

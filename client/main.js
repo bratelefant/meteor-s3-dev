@@ -104,7 +104,7 @@ async function handleFileRemove(fileId) {
     statusDiv.style.color = "green";
 
     // Remove the file from the uploaded files list if it exists
-    const fileIndex = uploadedFiles.findIndex(file => file.id === fileId);
+    const fileIndex = uploadedFiles.findIndex((file) => file.id === fileId);
     if (fileIndex !== -1) {
       uploadedFiles.splice(fileIndex, 1);
       updateUploadedFilesList();
@@ -167,7 +167,9 @@ document.addEventListener("DOMContentLoaded", function () {
   const removeBtn = document.getElementById("remove-btn");
   if (removeBtn) {
     removeBtn.addEventListener("click", function () {
-      const fileId = document.getElementById("remove-file-id-input").value.trim();
+      const fileId = document
+        .getElementById("remove-file-id-input")
+        .value.trim();
       handleFileRemove(fileId);
     });
   }
