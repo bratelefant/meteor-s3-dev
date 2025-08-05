@@ -51,6 +51,11 @@ export const configSchema = new SimpleSchema({
     label: "Custom permission check function",
     optional: true,
   },
+  endpoint: {
+    type: String,
+    label: "S3 Endpoint URL",
+    optional: true, // If omitted we use the default S3 endpoint; in testing we use a local MinIO instance
+  },
 });
 
 export const clientConfigSchema = new SimpleSchema({

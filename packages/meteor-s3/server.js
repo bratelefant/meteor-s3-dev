@@ -99,6 +99,8 @@ export class MeteorS3 {
     // Initialization logic for S3 client
     this.log(`Initializing S3 client ${this.config.name}`);
     this.s3Client = new S3Client({
+      endpoint: this.config.endpoint,
+      forcePathStyle: this.config.endpoint?.includes("localhost"),
       credentials: {
         accessKeyId: this.config.accessKeyId,
         secretAccessKey: this.config.secretAccessKey,
@@ -108,7 +110,8 @@ export class MeteorS3 {
 
     // Check, if there is already a bucket registered for this instance
     await this.ensureBucket();
-    await this.ensureCors();
+    // Minio does not support CORS, and we dont need it when working locally.
+    if (!this.config.endpoint?.includes("localhost")) await this.ensureCors();
     await this.ensureMethods();
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
@@ -134,9 +137,11 @@ export class MeteorS3 {
         );
         this.log(`Bucket ${this.bucketName} exists in S3.`);
       } catch (error) {
+        console.error("S3 HeadBucket error:", error);
         throw new Meteor.Error(
           "s3-bucket-access",
-          `Failed to access S3 bucket: ${error.message}`
+          `Failed to access S3 bucket: ${error.name}`,
+          error
         );
       }
       // Ensure the bucket's region matches the configured region
@@ -289,7 +294,7 @@ export class MeteorS3 {
           context,
           userId: Meteor.userId(),
         });
-      }
+      },
     });
   }
 
@@ -469,13 +474,13 @@ export class MeteorS3 {
 
     try {
       await this.s3Client.send(new DeleteObjectCommand(params));
-      await this.files.removeAsync(fileId);
     } catch (error) {
       throw new Meteor.Error(
         "s3-delete-failed",
         `Failed to delete file from S3: ${error.message}`
       );
     }
+    await this.files.removeAsync(fileId);
   }
 
   /**
