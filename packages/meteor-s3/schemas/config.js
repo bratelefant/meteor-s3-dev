@@ -46,6 +46,17 @@ export const configSchema = new SimpleSchema({
     optional: true,
     defaultValue: 60, // Default to 60 seconds
   },
+  onCheckPermissions: {
+    type: Function,
+    label: "Custom permission check function",
+    defaultValue: async (fileDoc, action, userId, context) => {
+      console.info(
+        `Predefined onCheckPermissions denied by default. Set "onCheckPermissions(fileDoc, action, userId, context)" in the config to implement your own permission logic. 
+        You can also set \`skipPermissionChecks: true\` in the config to skip all permission checks on the server side.`
+      );
+      return false; // Default to a function that always returns false
+    },
+  },
 });
 
 export const clientConfigSchema = new SimpleSchema({

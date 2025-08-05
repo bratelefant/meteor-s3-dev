@@ -97,3 +97,22 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
   ]
 }
 ```
+
+### Checking permissions
+MeteorS3 allows you to define custom permission checks for each instance individually using the `onCheckPermissions` hook. This hook is called before any file operation (upload, download, delete) and receives the file document, the action being performed, the current user ID, and the context object as parameters. You can use this hook to implement fine-grained access control based on your application's requirements.
+
+The `context` object can contain any data you need for your permission checks, such as a JWT token for example.
+
+**Important:** The context is created on the client side. So this is no data to be trusted. You should always validate the context on the server side in your `onCheckPermissions` hook.
+
+Example of a custom permission check, which allows only the owner of a file to download it:
+
+```js
+s3.onCheckPermissions = (fileDoc, action, userId, context) => {
+  if (action === "download") {
+    // Allow download only if the userId in context matches the file's owner;
+    return userId === fileDoc.ownerId;
+  }
+  return false; // Deny other actions by default
+};
+```

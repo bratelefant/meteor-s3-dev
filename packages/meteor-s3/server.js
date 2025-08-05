@@ -60,12 +60,7 @@ export class MeteorS3 {
     this.onBeforeUpload = async (fileDoc) => {};
     this.onAfterUpload = async (fileDoc) => {};
     // actions are "upload", "download" or "delete"
-    this.onCheckPermissions = async (fileDoc, action, userId) => {
-      console.info(
-        'onCheckPermissions denied by default. Override "onCheckPermissions" to implement your own permission logic. You can also set `skipPermissionChecks: true` in the config to skip all permission checks on the server side.'
-      );
-      return false;
-    };
+    this.onCheckPermissions = this.config.onCheckPermissions;
   }
 
   /**
@@ -208,6 +203,7 @@ export class MeteorS3 {
    * @returns {Promise<void>}
    */
   async ensureMethods() {
+    const self = this; // Preserve context for methods
     // Ensure that the methods are available on the server
     if (!Meteor.isServer) {
       throw new Meteor.Error(
@@ -216,29 +212,40 @@ export class MeteorS3 {
       );
     }
     Meteor.methods({
-      [`meteorS3.${this.config.name}.getUploadUrl`]: async ({
+      [`meteorS3.${this.config.name}.getUploadUrl`]: async function ({
         name,
         size,
         type,
         meta = {},
-      }) => {
+        context = {},
+      }) {
         check(name, String);
         check(size, Number);
         check(type, String);
         check(meta, Object);
+        check(context, Object);
 
-        return await this.getUploadUrl({
+        return await self.getUploadUrl({
           name,
           size,
           type,
           meta,
-          userId: Meteor.userId(),
+          context,
+          userId: Meteor.userId(), // Add userId to context for permission checks
         });
       },
 
-      [`meteorS3.${this.config.name}.getDownloadUrl`]: async (fileId) => {
+      [`meteorS3.${this.config.name}.getDownloadUrl`]: async ({
+        fileId,
+        context = {},
+      }) => {
         check(fileId, String);
-        return await this.getDownloadUrl(fileId, Meteor.userId());
+        check(context, Object);
+        return await self.getDownloadUrl({
+          fileId,
+          context,
+          userId: Meteor.userId(),
+        });
       },
 
       /**
@@ -254,7 +261,7 @@ export class MeteorS3 {
         fileId
       ) => {
         check(fileId, String);
-        return await this.handleFileUploadEvent(fileId);
+        return await self.handleFileUploadEvent(fileId);
       },
     });
   }
@@ -274,19 +281,21 @@ export class MeteorS3 {
    * @param {*} param0
    * @returns
    */
-  async getUploadUrl({ name, size, type, meta = {}, userId }) {
+  async getUploadUrl({ name, size, type, meta = {}, userId, context = {} }) {
     // Validate input parameters
     check(name, String);
     check(size, Number);
     check(type, String);
     check(meta, Object);
     check(userId, Match.Maybe(String));
+    check(context, Object);
 
     // Check permissions before generating the URL
     const hasPermission = await this.handlePermissionsCheck(
       { name, size, type, meta },
       "upload",
-      userId
+      userId,
+      context
     );
 
     if (!hasPermission) {
@@ -312,7 +321,7 @@ export class MeteorS3 {
       key: params.Key,
       bucket: this.bucketName,
       status: Meteor.isDevelopment ? "uploaded" : "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
-      ownerId: userId, // Set this if you have user management
+      ownerId: context?.userId, // Set this if you have user management
       createdAt: new Date(),
       meta,
     };
@@ -345,10 +354,10 @@ export class MeteorS3 {
    * @param {String} [userId] - The ID of the user requesting the download (optional).
    * @returns {Promise<String>} - The pre-signed URL for downloading the file.
    */
-  async getDownloadUrl(fileId, userId) {
+  async getDownloadUrl({ fileId, context = {}, userId }) {
     // Validate the file document
     check(fileId, String);
-    check(userId, Match.Maybe(String));
+    check(context, Object);
     const fileDoc = await this.files.findOneAsync(fileId);
     if (!fileDoc) {
       throw new Meteor.Error("s3-file-not-found", "File not found.");
@@ -358,7 +367,8 @@ export class MeteorS3 {
     const hasPermission = await this.handlePermissionsCheck(
       fileDoc,
       "download",
-      userId
+      userId,
+      context
     );
 
     if (!hasPermission) {
@@ -439,7 +449,7 @@ export class MeteorS3 {
     return fileDoc;
   }
 
-  async handlePermissionsCheck(fileDoc, action, userId) {
+  async handlePermissionsCheck(fileDoc, action, userId, context) {
     if (this.config.skipPermissionChecks) {
       this.log(
         `Skipping permission checks for action "${action}" on file ${fileDoc._id}`
@@ -447,7 +457,7 @@ export class MeteorS3 {
       return true;
     }
     // Default implementation always denies access
-    return this.onCheckPermissions(fileDoc, action, userId);
+    return this.onCheckPermissions(fileDoc, action, userId, context);
   }
 
   /**

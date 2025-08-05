@@ -38,18 +38,20 @@ export class MeteorS3Client {
    * @param {File} file - The file to upload.
    * @param {Object} [meta={}] - Optional metadata to associate with the file.
    * @param {Function} [onProgress] - Optional callback to track upload progress.
+   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<string>} - The ID of the uploaded file.
    * @throws {Meteor.Error} - If the upload fails.
    */
-  async uploadFile(file, meta = {}, onProgress) {
+  async uploadFile(file, meta = {}, onProgress, context = {}) {
     check(file, File);
     check(meta, Object);
+    check(context, Object);
     check(onProgress, Match.Maybe(Function));
     this.log(`Uploading file: ${file.name} (${file.size} bytes)`);
 
     const { url, fileId } = await Meteor.callAsync(
       `meteorS3.${this.config.name}.getUploadUrl`,
-      { name: file.name, size: file.size, type: file.type, meta }
+      { name: file.name, size: file.size, type: file.type, meta, context }
     );
 
     this.log(
@@ -71,15 +73,17 @@ export class MeteorS3Client {
   /**
    * Gets the pre-signed URL for downloading a file from S3.
    * @param {string} fileId - The ID of the file to download.
+   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<string>} - The pre-signed URL for downloading the file.
    * @throws {Meteor.Error} - If the download URL cannot be obtained.
    */
-  async getDownloadUrl(fileId) {
+  async getDownloadUrl(fileId, context = {}) {
     check(fileId, String);
+    check(context, Object);
     this.log(`Getting download URL for file ID: ${fileId}`);
     return await Meteor.callAsync(
       `meteorS3.${this.config.name}.getDownloadUrl`,
-      fileId
+      { fileId, context }
     );
   }
 
@@ -89,10 +93,11 @@ export class MeteorS3Client {
    * @returns {Promise<Blob>} - The downloaded file as a Blob.
    * @throws {Meteor.Error} - If the download fails.
    */
-  async downloadFile(fileId) {
+  async downloadFile(fileId, context = {}) {
     check(fileId, String);
+    check(context, Object);
     this.log(`Downloading file with ID: ${fileId}`);
-    const url = await this.getDownloadUrl(fileId);
+    const url = await this.getDownloadUrl(fileId, context);
     const res = await axios.get(url, {
       responseType: "blob", // Set response type to blob for file download
     });

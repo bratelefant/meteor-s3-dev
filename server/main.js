@@ -14,20 +14,20 @@ const s3 = new MeteorS3({
   skipPermissionChecks: false, // Optional, this defaults to false
   uploadExpiresIn: 60, // Optional, sets the expiration time for the presigned put urls; this defaults to 60 seconds
   downloadExpiresIn: 60, // Optional, sets the expiration time for the presigned get urls; this defaults to 60 seconds
+  onCheckPermissions: async (fileDoc, action, userId, context) => {
+    // Default permission check logic
+    console.log(
+      `Checking permissions for action: ${action} on file: ${fileDoc.name} by user: ${userId}`,
+      "Context:",
+      context
+    );
+    return true; // Allow all actions by default
+  },
 });
 
 Meteor.startup(async () => {
   // Initialize the S3 client
   await s3.init();
-  // Define a custom permission check function
-  s3.onCheckPermissions = (fileDoc, action, userId) => {
-    console.log(
-      `Checking permissions for action: ${action} on file: ${fileDoc.name} by user: ${userId}`
-    );
-    // Custom permission check logic can be added here
-    if (action === "upload") return true;
-    if (action === "download") return true;
-  };
 
   // Test the S3 client by uploading a test file
   const s3Client = new MeteorS3Client("publicFiles");

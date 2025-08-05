@@ -75,7 +75,7 @@ async function handleFileDownload(fileId) {
     statusDiv.style.color = "green";
 
     // Open the file in a new tab
-    window.open(downloadUrl, '_blank');
+    window.open(downloadUrl, "_blank");
   } catch (error) {
     console.error("Error downloading file:", error);
     statusDiv.innerHTML = `Download failed: ${error.message}`;
