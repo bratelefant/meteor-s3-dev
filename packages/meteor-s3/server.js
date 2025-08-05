@@ -8,6 +8,7 @@ import {
   HeadBucketCommand,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MeteorS3BucketsSchema } from "./schemas/buckets";
@@ -28,7 +29,14 @@ function generateValidBucketName(instanceName) {
   return baseName.substring(0, 63); // max 63 Zeichen laut S3-Regeln
 }
 
+/**
+ * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
+ * It also manages the file metadata in a MongoDB collection.
+ * Each instance must have a unique name, so you can have multiple instances of MeteorS3 in your application.
+ * @locus server
+ */
 export class MeteorS3 {
+  
   constructor(config) {
     configSchema.validate(config);
     this.config = config;
@@ -49,12 +57,30 @@ export class MeteorS3 {
         );
       });
     // Initialize empty hooks. Override these in your app to add custom behavior.
-    this.onBeforeUpload = async (fileDoc, userId) => {};
-    this.onAfterUpload = async (fileDoc, userId) => {};
+    this.onBeforeUpload = async (fileDoc) => {};
+    this.onAfterUpload = async (fileDoc) => {};
     // actions are "upload", "download" or "delete"
     this.onCheckPermissions = async (fileDoc, action, userId) => true;
   }
 
+  /**
+   * Initializes the S3 client and ensures the bucket for this instance exists.
+   * This also sets up the server methods for file uploads and downloads.
+   * This method should be called once when the application starts.
+   * It sets up the S3 client and checks if the bucket exists, creating it if necessary.
+   *
+   * Call this in your Meteor server startup code:
+   * @example
+   * ```javascript
+   * import { MeteorS3 } from 'meteor/bratelefant:meteor-s3';
+   * const s3 = new MeteorS3({ name: "myInstance", accessKeyId: "yourAccessKey", secretAccessKey: "yourSecretKey" });
+   *
+   * Meteor.startup(async () => {
+   *   await s3.init();
+   * });
+   * ```
+   * @returns {Promise<void>}
+   */
   async init() {
     // Initialization logic for S3 client
     this.log(`Initializing S3 client ${this.config.name}`);
@@ -68,6 +94,8 @@ export class MeteorS3 {
 
     // Check, if there is already a bucket registered for this instance
     await this.ensureBucket();
+    await this.ensureMethods();
+    this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
 
   /**
@@ -138,33 +166,63 @@ export class MeteorS3 {
     }
   }
 
+  /**
+   * Ensures that the server methods for file uploads and downloads are available.
+   * This is called automatically when the instance is initialized and should not be called manually.
+   * @returns {Promise<void>}
+   */
   async ensureMethods() {
     // Ensure that the methods are available on the server
-    if (Meteor.isServer) {
-      Meteor.methods({
-        [`meteorS3.${this.config.name}.getUploadUrl`]: async (
+    if (!Meteor.isServer) {
+      throw new Meteor.Error(
+        "method-not-available",
+        "This method is only available on the server."
+      );
+    }
+    Meteor.methods({
+      [`meteorS3.${this.config.name}.getUploadUrl`]: async ({
+        name,
+        size,
+        type,
+        meta = {},
+        userId,
+      }) => {
+        check(name, String);
+        check(size, Number);
+        check(type, String);
+        check(meta, Object);
+        check(userId, Match.Maybe(String));
+
+        return await this.getUploadUrl({
           name,
           size,
           type,
-          meta = {},
-          userId
-        ) => {
-          check(name, String);
-          check(size, Number);
-          check(type, String);
-          check(meta, Object);
-          check(userId, Match.Maybe(String));
+          meta,
+          userId,
+        });
+      },
 
-          return await this.getUploadUrl({
-            name,
-            size,
-            type,
-            meta,
-            userId,
-          });
-        },
-      });
-    }
+      [`meteorS3.${this.config.name}.getDownloadUrl`]: async (fileId) => {
+        check(fileId, String);
+        return await this.getDownloadUrl(fileId);
+      },
+
+      /**
+       * Right now it is neccessary to call this method after the file is uploaded.
+       * The MeteorS3 client will do this automatically after the upload.
+       *
+       * In the future, this will not be neccessary in production anymore, since a S3 event trigger
+       * will call the handleFileUpload handler automatically.
+       * @param {*} fileId
+       * @returns {Promise<MeteorS3FilesSchema>}
+       */
+      [`meteorS3.${this.config.name}.handleFileUploadEvent`]: async (
+        fileId
+      ) => {
+        check(fileId, String);
+        return await this.handleFileUploadEvent(fileId);
+      },
+    });
   }
 
   /**
@@ -191,9 +249,10 @@ export class MeteorS3 {
     check(userId, Match.Maybe(String));
 
     // Generate a pre-signed URL for uploading the file
+    // The key is a unique identifier for the file in S3
     const params = {
       Bucket: this.bucketName,
-      Key: `uploads/${name}`,
+      Key: `uploads/${Random.id()}-${name}`,
       ContentType: type,
     };
 
@@ -210,7 +269,7 @@ export class MeteorS3 {
       meta,
     };
 
-    await this.files.insertAsync(fileDoc);
+    const fileId = await this.files.insertAsync(fileDoc);
 
     this.log(`Generated upload URL for file: ${name}`);
 
@@ -228,13 +287,28 @@ export class MeteorS3 {
     }
 
     // call hook before upload
-    await this.onBeforeUpload(fileDoc, userId);
+    await this.onBeforeUpload(fileDoc);
 
-    return getSignedUrl(this.s3Client, new PutObjectCommand(params), {
-      expiresIn: this.config.uploadExpiresIn,
-    });
+    const url = await getSignedUrl(
+      this.s3Client,
+      new PutObjectCommand(params),
+      {
+        expiresIn: this.config.uploadExpiresIn,
+      }
+    );
+    return {
+      url,
+      fileId, // Return the file ID for later reference
+    };
   }
 
+  /**
+   * This method generates a pre-signed URL for downloading a file from S3.
+   * It checks permissions and the file status before generating the URL.
+   *
+   * @param {String} fileId - The ID of the file document in the database.
+   * @returns {Promise<String>} - The pre-signed URL for downloading the file.
+   */
   async getDownloadUrl(fileId) {
     // Validate the file document
     check(fileId, String);
@@ -249,7 +323,7 @@ export class MeteorS3 {
       "download",
       fileDoc.ownerId
     );
-    
+
     if (!hasPermission) {
       throw new Meteor.Error(
         "s3-permission-denied",
@@ -276,9 +350,56 @@ export class MeteorS3 {
     });
   }
 
-  async handleFileUploadEvent(event) {
-    // To be implemented: Handle S3 events for file uploads, update file status, call hooks, etc.
-    this.log("Handling file upload event:", event);
+  /**
+   * This method handles the file upload event.
+   * It updates the file status to "uploaded" and calls the onAfterUpload hook.
+   * This is typically called by an S3 event trigger when a file is successfully uploaded.
+   * In development mode, the client needs to call this method manually after uploading the file.
+   *
+   * @param {*} fileId
+   * @returns
+   */
+  async handleFileUploadEvent(fileId) {
+    // Validate the file document
+    check(fileId, String);
+
+    const fileDoc = await this.files.findOneAsync(fileId);
+    if (!fileDoc) {
+      throw new Meteor.Error("s3-file-not-found", "File not found.");
+    }
+
+    // Get the file infos from S3
+    const headParams = {
+      Bucket: this.bucketName,
+      Key: fileDoc.key,
+    };
+
+    let headResponse;
+    try {
+      headResponse = await this.s3Client.send(
+        new HeadObjectCommand(headParams)
+      );
+    } catch (error) {
+      throw new Meteor.Error(
+        "s3-file-not-found",
+        `File not found in S3: ${error.message}`
+      );
+    }
+
+    // Update the file status to "uploaded"
+    await this.files.updateAsync(fileId, {
+      $set: {
+        status: "uploaded",
+        etag: headResponse.ETag,
+        updatedAt: new Date(),
+      },
+    });
+
+    // call hook after upload
+    await this.onAfterUpload(fileDoc);
+
+    this.log(`File ${fileDoc.filename} uploaded successfully.`);
+    return fileDoc;
   }
 
   /**

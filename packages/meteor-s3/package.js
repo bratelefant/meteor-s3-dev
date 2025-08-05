@@ -13,6 +13,7 @@ Package.describe({
 Npm.depends({
   "@aws-sdk/client-s3": "3.859.0",
   "@aws-sdk/s3-request-presigner": "3.859.0",
+  axios: "1.11.0",
 });
 
 Package.onUse(function (api) {
@@ -21,6 +22,7 @@ Package.onUse(function (api) {
   api.use("mongo");
   api.use("aldeed:collection2@4.1.4");
   api.mainModule("server.js", "server");
+  api.mainModule("common.js");
 });
 
 Package.onTest(function (api) {
