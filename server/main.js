@@ -9,15 +9,27 @@ const s3 = new MeteorS3({
   secretAccessKey:
     process.env.AWS_SECRET_ACCESS_KEY || Meteor.settings?.aws?.secretAccessKey,
   name: "publicFiles",
-  region: "eu-central-1",
-  verbose: true, // Enable verbose logging
+  region: "eu-central-1", // Optional, this defaults to 'eu-central-1'
+  verbose: true, // Optional, this defaults to false
+  skipPermissionChecks: false, // Optional, this defaults to false
+  uploadExpiresIn: 60, // Optional, sets the expiration time for the presigned put urls; this defaults to 60 seconds
+  downloadExpiresIn: 60, // Optional, sets the expiration time for the presigned get urls; this defaults to 60 seconds
 });
 
 Meteor.startup(async () => {
   // Initialize the S3 client
   await s3.init();
-  console.log("Meteor S3 package initialized successfully.");
+  // Define a custom permission check function
+  s3.onCheckPermissions = (fileDoc, action, userId) => {
+    console.log(
+      `Checking permissions for action: ${action} on file: ${fileDoc.name} by user: ${userId}`
+    );
+    // Custom permission check logic can be added here
+    if (action === "upload") return true;
+    if (action === "download") return true;
+  };
 
+  // Test the S3 client by uploading a test file
   const s3Client = new MeteorS3Client("publicFiles");
 
   let fileId;

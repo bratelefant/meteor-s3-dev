@@ -56,9 +56,13 @@ const testFile = new File(["Hello World"], "test.txt", {
 });
 
 // Uplaod a file with metadata and log the progress
-const fileId = await s3Client.uploadFile(testFile, { test: true }, (progress) => {
-  console.log(`Upload progress: ${progress}%`);
-});
+const fileId = await s3Client.uploadFile(
+  testFile,
+  { test: true },
+  (progress) => {
+    console.log(`Upload progress: ${progress}%`);
+  }
+);
 
 // Download a file
 const blob = await s3Client.downloadFile(fileId);
@@ -83,6 +87,12 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::*/*"
+    },
+    {
+      "Sid": "AllowS3CorsOperations",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketCors", "s3:PutBucketCors"],
+      "Resource": "arn:aws:s3:::*"
     }
   ]
 }

@@ -9,6 +9,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  PutBucketCorsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MeteorS3BucketsSchema } from "./schemas/buckets";
@@ -59,7 +60,12 @@ export class MeteorS3 {
     this.onBeforeUpload = async (fileDoc) => {};
     this.onAfterUpload = async (fileDoc) => {};
     // actions are "upload", "download" or "delete"
-    this.onCheckPermissions = async (fileDoc, action, userId) => true;
+    this.onCheckPermissions = async (fileDoc, action, userId) => {
+      console.info(
+        'onCheckPermissions denied by default. Override "onCheckPermissions" to implement your own permission logic. You can also set `skipPermissionChecks: true` in the config to skip all permission checks on the server side.'
+      );
+      return false;
+    };
   }
 
   /**
@@ -93,6 +99,7 @@ export class MeteorS3 {
 
     // Check, if there is already a bucket registered for this instance
     await this.ensureBucket();
+    await this.ensureCors();
     await this.ensureMethods();
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
@@ -162,6 +169,36 @@ export class MeteorS3 {
       await this.buckets.insertAsync(newBucket);
       this.bucketName = newBucket.bucketName;
       this.log(`Created new bucket: ${this.bucketName}`);
+    }
+  }
+
+  async ensureCors() {
+    // Ensure CORS configuration for the bucket
+    const corsConfig = {
+      Bucket: this.bucketName,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedHeaders: ["*"],
+            AllowedMethods: ["GET", "PUT", "POST", "DELETE"],
+            AllowedOrigins: [
+              Meteor.isDevelopment ? "*" : Meteor.absoluteUrl().slice(0, -1),
+            ],
+            MaxAgeSeconds: 3000,
+          },
+        ],
+      },
+    };
+    try {
+      await this.s3Client.send(new PutBucketCorsCommand(corsConfig));
+      this.log(`CORS configuration set for bucket: ${this.bucketName}`);
+    } catch (error) {
+      console.error("Error setting CORS configuration:", error);
+      throw new Meteor.Error(
+        "s3-cors-configuration",
+        `Failed to set CORS configuration for bucket: ${error.message}`,
+        error
+      );
     }
   }
 
@@ -245,6 +282,20 @@ export class MeteorS3 {
     check(meta, Object);
     check(userId, Match.Maybe(String));
 
+    // Check permissions before generating the URL
+    const hasPermission = await this.handlePermissionsCheck(
+      { name, size, type, meta },
+      "upload",
+      userId
+    );
+
+    if (!hasPermission) {
+      throw new Meteor.Error(
+        "s3-permission-denied",
+        "You do not have permission to upload this file."
+      );
+    }
+
     // Generate a pre-signed URL for uploading the file
     // The key is a unique identifier for the file in S3
     const params = {
@@ -268,21 +319,6 @@ export class MeteorS3 {
 
     const fileId = await this.files.insertAsync(fileDoc);
 
-    this.log(`Generated upload URL for file: ${name}`);
-
-    // Check permissions before generating the URL
-    const hasPermission = await this.onCheckPermissions(
-      fileDoc,
-      "upload",
-      userId
-    );
-    if (!hasPermission) {
-      throw new Meteor.Error(
-        "s3-permission-denied",
-        "You do not have permission to upload this file."
-      );
-    }
-
     // call hook before upload
     await this.onBeforeUpload(fileDoc);
 
@@ -293,6 +329,8 @@ export class MeteorS3 {
         expiresIn: this.config.uploadExpiresIn,
       }
     );
+    this.log(`Generated upload URL for file: ${name}`);
+
     return {
       url,
       fileId, // Return the file ID for later reference
@@ -317,7 +355,7 @@ export class MeteorS3 {
     }
 
     // Check permissions before generating the URL
-    const hasPermission = await this.onCheckPermissions(
+    const hasPermission = await this.handlePermissionsCheck(
       fileDoc,
       "download",
       userId
@@ -399,6 +437,17 @@ export class MeteorS3 {
 
     this.log(`File ${fileDoc.filename} uploaded successfully.`);
     return fileDoc;
+  }
+
+  async handlePermissionsCheck(fileDoc, action, userId) {
+    if (this.config.skipPermissionChecks) {
+      this.log(
+        `Skipping permission checks for action "${action}" on file ${fileDoc._id}`
+      );
+      return true;
+    }
+    // Default implementation always denies access
+    return this.onCheckPermissions(fileDoc, action, userId);
   }
 
   /**

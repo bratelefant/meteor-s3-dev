@@ -1,21 +1,37 @@
 <head>
-  <title>Minimal Meteor app</title>
+  <title>Test Meteor S3</title>
 </head>
 
 <body>
-  <h1>Minimal Meteor app</h1>
+  <h1>Test Meteor S3</h1>
   <p>
-    This Meteor app uses as few Meteor packages as possible, to keep the
-    client JavaScript bundle as small as possible.
+    Try uploading a file using the form below. The file will be uploaded to S3 and the URL will be displayed.
   </p>
 
   <em id="server-render-target"></em>
 
-  <h2>Learn Meteor!</h2>
-  <ul>
-    <li><a href="https://www.meteor.com/try" target="_blank">Do the Tutorial</a></li>
-    <li><a href="http://guide.meteor.com" target="_blank">Follow the Guide</a></li>
-    <li><a href="https://docs.meteor.com" target="_blank">Read the Docs</a></li>
-    <li><a href="https://forums.meteor.com" target="_blank">Discussions</a></li>
-  </ul>
+  <!-- File Upload Section -->
+  <div class="upload-section">
+    <h2>Upload File</h2>
+    <form id="upload-form" enctype="multipart/form-data">
+      <input type="file" name="file" required>
+      <button type="submit">Upload</button>
+    </form>
+    <div id="upload-status"></div>
+    <div id="upload-result"></div>
+  </div>
+
+  <!-- File Download Section -->
+  <div class="download-section">
+    <h2>Download File</h2>
+    <input type="text" id="file-id-input" placeholder="Enter file ID">
+    <button id="download-btn">Download</button>
+    <div id="download-status"></div>
+  </div>
+
+  <!-- Recent Uploads -->
+  <div class="recent-uploads">
+    <h2>Recent Uploads</h2>
+    <ul id="uploaded-files-list"></ul>
+  </div>
 </body>

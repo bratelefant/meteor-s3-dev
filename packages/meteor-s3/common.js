@@ -1,4 +1,6 @@
 import axios from "axios";
+import { clientConfigSchema } from "./schemas/config";
+import { check, Match } from "meteor/check";
 
 async function uploadFileWithProgress(url, file, onProgress) {
   await axios.put(url, file, {
@@ -19,8 +21,16 @@ async function uploadFileWithProgress(url, file, onProgress) {
  * It supports uploading files, getting download URLs, downloading files as blobs, and opening files in a new tab.
  */
 export class MeteorS3Client {
-  constructor(instanceName) {
-    this.instanceName = instanceName;
+  constructor(config) {
+    if (typeof config === "string") {
+      // If a string is passed, treat it as the instance name
+      config = { name: config, verbose: false };
+    }
+    // Validate the configuration against the client schema
+    clientConfigSchema.validate(config);
+    this.config = config;
+
+    this.log(`Initializing MeteorS3Client for instance: ${this.config.name}`);
   }
 
   /**
@@ -32,17 +42,29 @@ export class MeteorS3Client {
    * @throws {Meteor.Error} - If the upload fails.
    */
   async uploadFile(file, meta = {}, onProgress) {
+    check(file, File);
+    check(meta, Object);
+    check(onProgress, Match.Maybe(Function));
+    this.log(`Uploading file: ${file.name} (${file.size} bytes)`);
+
     const { url, fileId } = await Meteor.callAsync(
-      `meteorS3.${this.instanceName}.getUploadUrl`,
+      `meteorS3.${this.config.name}.getUploadUrl`,
       { name: file.name, size: file.size, type: file.type, meta }
     );
 
+    this.log(
+      `Start uploading file to S3: ${file.name} (${file.size} bytes) using URL: ${url}`
+    );
+
     await uploadFileWithProgress(url, file, onProgress);
+
+    this.log(`File uploaded successfully: ${file.name} with ID: ${fileId}`);
     // After the upload, we need to call the server method to handle the file upload event
     await Meteor.callAsync(
-      `meteorS3.${this.instanceName}.handleFileUploadEvent`,
+      `meteorS3.${this.config.name}.handleFileUploadEvent`,
       fileId
     );
+    this.log(`File upload event handled for ID: ${fileId}`);
     return fileId;
   }
 
@@ -53,8 +75,10 @@ export class MeteorS3Client {
    * @throws {Meteor.Error} - If the download URL cannot be obtained.
    */
   async getDownloadUrl(fileId) {
+    check(fileId, String);
+    this.log(`Getting download URL for file ID: ${fileId}`);
     return await Meteor.callAsync(
-      `meteorS3.${this.instanceName}.getDownloadUrl`,
+      `meteorS3.${this.config.name}.getDownloadUrl`,
       fileId
     );
   }
@@ -66,6 +90,8 @@ export class MeteorS3Client {
    * @throws {Meteor.Error} - If the download fails.
    */
   async downloadFile(fileId) {
+    check(fileId, String);
+    this.log(`Downloading file with ID: ${fileId}`);
     const url = await this.getDownloadUrl(fileId);
     const res = await axios.get(url, {
       responseType: "blob", // Set response type to blob for file download
@@ -77,5 +103,15 @@ export class MeteorS3Client {
       );
     }
     return await res.data;
+  }
+
+  /**
+   * Log messages if verbose mode is enabled.
+   * @param {...any} args - The arguments to log.
+   */
+  log(...args) {
+    if (this.config.verbose) {
+      console.log(`MeteorS3::[${this.config.name}]`, ...args);
+    }
   }
 }

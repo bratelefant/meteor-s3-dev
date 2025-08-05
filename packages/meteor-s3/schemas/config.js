@@ -13,7 +13,7 @@ export const configSchema = new SimpleSchema({
   },
   name: {
     type: String,
-    label: "Unique S3 Instance Name",
+    label: "Unique MeteorS3 Instance Name",
     optional: false,
   },
   region: {
@@ -28,6 +28,12 @@ export const configSchema = new SimpleSchema({
     optional: true,
     defaultValue: false,
   },
+  skipPermissionChecks: {
+    type: Boolean,
+    label: "Skip permission checks when called from the server",
+    optional: true,
+    defaultValue: false,
+  },
   uploadExpiresIn: {
     type: Number,
     label: "Expiration time for upload URLs in seconds",
@@ -39,5 +45,19 @@ export const configSchema = new SimpleSchema({
     label: "Expiration time for download URLs in seconds",
     optional: true,
     defaultValue: 60, // Default to 60 seconds
+  },
+});
+
+export const clientConfigSchema = new SimpleSchema({
+  name: {
+    type: String,
+    label: "Unique MeteorS3 Instance Name",
+    optional: false,
+  },
+  verbose: {
+    type: Boolean,
+    label: "Enable verbose logging",
+    optional: true,
+    defaultValue: false,
   },
 });
