@@ -16,6 +16,11 @@ import { MeteorS3BucketsSchema } from "./schemas/buckets";
 import "meteor/aldeed:collection2/dynamic";
 import { MeteorS3FilesSchema } from "./schemas/files";
 
+/**
+ * internal helper function to generate a valid S3 bucket name
+ * @param {*} instanceName
+ * @returns
+ */
 function generateValidBucketName(instanceName) {
   const slugified = instanceName
     .toLowerCase()
@@ -60,7 +65,15 @@ export class MeteorS3 {
     this.onBeforeUpload = async (fileDoc) => {};
     this.onAfterUpload = async (fileDoc) => {};
     // actions are "upload", "download" or "delete"
-    this.onCheckPermissions = this.config.onCheckPermissions;
+    this.onCheckPermissions =
+      this.config.onCheckPermissions ||
+      (async (fileDoc, action, userId, context) => {
+        // Default implementation always denies access
+        console.warn(
+          `No permission check function provided. Defaulting to deny all actions for file ${fileDoc._id} and action "${action}".`
+        );
+        return false; // Deny all actions by default
+      });
   }
 
   /**
@@ -279,7 +292,15 @@ export class MeteorS3 {
    * when the file is successfully uploaded.
    *
    * @param {*} param0
-   * @returns
+   * @param {String} param0.name - The name of the file to be uploaded.
+   * @param {Number} param0.size - The size of the file in bytes.
+   * @param {String} param0.type - The MIME type of the file (e.g., "image/png").
+   * @param {Object} [param0.meta={}] - Additional metadata to store with the file.
+   * @param {String} [param0.userId] - The ID of the user uploading the file (optional).
+   * @param {Object} [param0.context={}] - Additional context for permission checks (optional).
+   * @throws {Meteor.Error} If the user does not have permission to upload the file or if the bucket is not configured correctly.
+   * @throws {Meteor.Error} If the file document cannot be created or if the upload URL cannot be generated.
+   * @returns {Promise<Object>} - An object containing the pre-signed URL for uploading the file and the file ID.
    */
   async getUploadUrl({ name, size, type, meta = {}, userId, context = {} }) {
     // Validate input parameters
@@ -350,8 +371,13 @@ export class MeteorS3 {
    * This method generates a pre-signed URL for downloading a file from S3.
    * It checks permissions and the file status before generating the URL.
    *
-   * @param {String} fileId - The ID of the file document in the database.
-   * @param {String} [userId] - The ID of the user requesting the download (optional).
+   * @param {Object} param0 - The parameters for generating the download URL.
+   * @param {String} param0.fileId - The ID of the file to be downloaded.
+   * @param {Object} [param0.context={}] - Additional context for permission checks (optional).
+   * @param {String} [param0.userId] - The ID of the user requesting the download (optional).
+   * @throws {Meteor.Error} If the file does not exist, if the user does not have permission to download the file, or if the file is not ready for download.
+   * @throws {Meteor.Error} If the file status is not "uploaded".
+   * @throws {Meteor.Error} If the S3 client fails to generate the pre-signed URL.
    * @returns {Promise<String>} - The pre-signed URL for downloading the file.
    */
   async getDownloadUrl({ fileId, context = {}, userId }) {
@@ -403,8 +429,10 @@ export class MeteorS3 {
    * This is typically called by an S3 event trigger when a file is successfully uploaded.
    * In development mode, the client needs to call this method manually after uploading the file.
    *
-   * @param {*} fileId
-   * @returns
+   * @param {String} fileId
+   * @throws {Meteor.Error} If the file document is not found or if the file is not found in S3.
+   * @throws {Meteor.Error} If the file status cannot be updated or if the S3 client fails to retrieve the file metadata.
+   * @returns {Promise<MeteorS3FilesSchema>} - The updated file document.
    */
   async handleFileUploadEvent(fileId) {
     // Validate the file document
@@ -449,6 +477,17 @@ export class MeteorS3 {
     return fileDoc;
   }
 
+  /**
+   * Handles permission checks for file actions.
+   * This is an internal method and primarily used to call the onCheckPermissions hook.
+   * If the skipPermissionChecks config is set to true, it will skip the permission checks.
+   * @param {Object} fileDoc - The file document to check permissions for.
+   * @param {String} action - The action to check permissions for (e.g., "upload", "download").
+   * @param {String} userId - The ID of the user requesting the action.
+   * @param {Object} context - Additional context for permission checks (optional).
+   * @throws {Meteor.Error} If the permission check fails or if the onCheckPermissions hook is not defined.
+   * @returns {Promise<Boolean>} - Returns true if the user has permission, false otherwise.
+   */
   async handlePermissionsCheck(fileDoc, action, userId, context) {
     if (this.config.skipPermissionChecks) {
       this.log(

@@ -19,6 +19,7 @@ async function uploadFileWithProgress(url, file, onProgress) {
  * This class provides methods to interact with S3 for file uploads and downloads.
  * It uses Meteor's callAsync method to communicate with the server-side methods.
  * It supports uploading files, getting download URLs, downloading files as blobs, and opening files in a new tab.
+ * @locus client or server
  */
 export class MeteorS3Client {
   constructor(config) {

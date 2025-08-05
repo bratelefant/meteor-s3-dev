@@ -21,7 +21,7 @@ const s3 = new MeteorS3({
       "Context:",
       context
     );
-    return true; // Allow all actions by default
+    return true; // Deny all actions by default
   },
 });
 
