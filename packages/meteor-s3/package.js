@@ -20,6 +20,7 @@ Package.onUse(function (api) {
   api.versionsFrom("3.3");
   api.use("ecmascript");
   api.use("mongo");
+  api.use("accounts-base");
   api.use("aldeed:collection2@4.1.4");
   api.mainModule("server.js", "server");
   api.mainModule("common.js");

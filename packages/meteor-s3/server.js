@@ -36,7 +36,6 @@ function generateValidBucketName(instanceName) {
  * @locus server
  */
 export class MeteorS3 {
-  
   constructor(config) {
     configSchema.validate(config);
     this.config = config;
@@ -185,26 +184,24 @@ export class MeteorS3 {
         size,
         type,
         meta = {},
-        userId,
       }) => {
         check(name, String);
         check(size, Number);
         check(type, String);
         check(meta, Object);
-        check(userId, Match.Maybe(String));
 
         return await this.getUploadUrl({
           name,
           size,
           type,
           meta,
-          userId,
+          userId: Meteor.userId(),
         });
       },
 
       [`meteorS3.${this.config.name}.getDownloadUrl`]: async (fileId) => {
         check(fileId, String);
-        return await this.getDownloadUrl(fileId);
+        return await this.getDownloadUrl(fileId, Meteor.userId());
       },
 
       /**
@@ -307,11 +304,13 @@ export class MeteorS3 {
    * It checks permissions and the file status before generating the URL.
    *
    * @param {String} fileId - The ID of the file document in the database.
+   * @param {String} [userId] - The ID of the user requesting the download (optional).
    * @returns {Promise<String>} - The pre-signed URL for downloading the file.
    */
-  async getDownloadUrl(fileId) {
+  async getDownloadUrl(fileId, userId) {
     // Validate the file document
     check(fileId, String);
+    check(userId, Match.Maybe(String));
     const fileDoc = await this.files.findOneAsync(fileId);
     if (!fileDoc) {
       throw new Meteor.Error("s3-file-not-found", "File not found.");
@@ -321,7 +320,7 @@ export class MeteorS3 {
     const hasPermission = await this.onCheckPermissions(
       fileDoc,
       "download",
-      fileDoc.ownerId
+      userId
     );
 
     if (!hasPermission) {

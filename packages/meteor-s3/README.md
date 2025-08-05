@@ -9,12 +9,17 @@ We want to make the useage of aws s3 as simple as possible in your Meteor 3 app.
 
 ## Features (MVP)
 
-- Almost zero config use of S3
+- Minimal config use of S3
 - Auto-create and setup your buckets
-- Easily request presigned upload and download urls for your files
+- Easily upload and download files to/from s3
 - Auto-setup Amazon event bridge to log the state of uploaded files
 - Secure uploads, download and removal of files via the `onCheckPermissions` hook for each instance individually
 - Use `onBeforeUpload` and `onAfterUpload` hooks to add your custom processing logic
+
+## Planned features
+
+- Auto-setup S3 event trigger to call post-upload handler on the server
+- Auto-setup lambda function to create thumbnails
 
 ## Setup
 
@@ -32,9 +37,32 @@ const publicS3 = new MeteorS3({
   accessKeyId: Meteor.settings.accessKeyId,
   secretAccessKey: Meteor.settings.secretAccessKey,
 });
+
+await publicS3.init();
 ```
 
 _By default, the `onCheckPermissions` hook allows all operations on files._
+
+Now your server is ready. If you want to upload/download files, you can use the MeteorS3Client helper class to do that:
+
+```js
+// This runs on the server or the client
+
+// Create a client for the publicFiles Instance of MeteorS3
+const s3Client = new MeteorS3Client("publicFiles");
+
+const testFile = new File(["Hello World"], "test.txt", {
+  type: "text/plain",
+});
+
+// Uplaod a file with metadata and log the progress
+const fileId = await s3Client.uploadFile(testFile, { test: true }, (progress) => {
+  console.log(`Upload progress: ${progress}%`);
+});
+
+// Download a file
+const blob = await s3Client.downloadFile(fileId);
+```
 
 ### Required policy
 
