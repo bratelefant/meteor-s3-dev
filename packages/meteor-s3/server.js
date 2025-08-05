@@ -10,6 +10,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   PutBucketCorsCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MeteorS3BucketsSchema } from "./schemas/buckets";
@@ -276,6 +277,19 @@ export class MeteorS3 {
         check(fileId, String);
         return await self.handleFileUploadEvent(fileId);
       },
+
+      [`meteorS3.${this.config.name}.removeFile`]: async function ({
+        fileId,
+        context = {},
+      }) {
+        check(fileId, String);
+        check(context, Object);
+        return await self.removeFile({
+          fileId,
+          context,
+          userId: Meteor.userId(),
+        });
+      }
     });
   }
 
@@ -421,6 +435,47 @@ export class MeteorS3 {
     return getSignedUrl(this.s3Client, new GetObjectCommand(params), {
       expiresIn: this.config.downloadExpiresIn,
     });
+  }
+
+  async removeFile({ fileId, context = {}, userId }) {
+    // Validate the file document
+    check(fileId, String);
+    check(context, Object);
+    check(userId, Match.Maybe(String));
+    const fileDoc = await this.files.findOneAsync(fileId);
+    if (!fileDoc) {
+      throw new Meteor.Error("s3-file-not-found", "File not found.");
+    }
+    // Check permissions before removing the file
+    const hasPermission = await this.handlePermissionsCheck(
+      fileDoc,
+      "delete",
+      userId,
+      context
+    );
+
+    if (!hasPermission) {
+      throw new Meteor.Error(
+        "s3-permission-denied",
+        "You do not have permission to delete this file."
+      );
+    }
+
+    // Remove the file from S3
+    const params = {
+      Bucket: this.bucketName,
+      Key: fileDoc.key,
+    };
+
+    try {
+      await this.s3Client.send(new DeleteObjectCommand(params));
+      await this.files.removeAsync(fileId);
+    } catch (error) {
+      throw new Meteor.Error(
+        "s3-delete-failed",
+        `Failed to delete file from S3: ${error.message}`
+      );
+    }
   }
 
   /**

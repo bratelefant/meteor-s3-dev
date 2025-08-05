@@ -79,7 +79,7 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
     {
       "Sid": "AllowS3BucketManagement",
       "Effect": "Allow",
-      "Action": ["s3:CreateBucket", "s3:ListBucket", "s3:GetBucketLocation"],
+      "Action": ["s3:CreateBucket", "s3:ListBucket"],
       "Resource": "arn:aws:s3:::*"
     },
     {
@@ -91,7 +91,7 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
     {
       "Sid": "AllowS3CorsOperations",
       "Effect": "Allow",
-      "Action": ["s3:GetBucketCors", "s3:PutBucketCors"],
+      "Action": ["s3:PutBucketCors"],
       "Resource": "arn:aws:s3:::*"
     }
   ]
@@ -99,6 +99,7 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
 ```
 
 ### Checking permissions
+
 MeteorS3 allows you to define custom permission checks for each instance individually using the `onCheckPermissions` hook. This hook is called before any file operation (upload, download, delete) and receives the file document, the action being performed, the current user ID, and the context object as parameters. You can use this hook to implement fine-grained access control based on your application's requirements.
 
 The `context` object can contain any data you need for your permission checks, such as a JWT token for example.

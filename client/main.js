@@ -83,6 +83,42 @@ async function handleFileDownload(fileId) {
   }
 }
 
+// Function to handle file removal
+async function handleFileRemove(fileId) {
+  const statusDiv = document.getElementById("remove-status");
+
+  if (!fileId) {
+    statusDiv.innerHTML = "Please enter a file ID";
+    statusDiv.style.color = "red";
+    return;
+  }
+
+  statusDiv.innerHTML = "Removing file...";
+  statusDiv.style.color = "blue";
+
+  try {
+    await s3Client.removeFile(fileId);
+    console.log(`File removed successfully: ${fileId}`);
+
+    statusDiv.innerHTML = "File removed successfully!";
+    statusDiv.style.color = "green";
+
+    // Remove the file from the uploaded files list if it exists
+    const fileIndex = uploadedFiles.findIndex(file => file.id === fileId);
+    if (fileIndex !== -1) {
+      uploadedFiles.splice(fileIndex, 1);
+      updateUploadedFilesList();
+    }
+
+    // Clear the input field
+    document.getElementById("remove-file-id-input").value = "";
+  } catch (error) {
+    console.error("Error removing file:", error);
+    statusDiv.innerHTML = `Remove failed: ${error.message}`;
+    statusDiv.style.color = "red";
+  }
+}
+
 // Function to update the uploaded files list
 function updateUploadedFilesList() {
   const list = document.getElementById("uploaded-files-list");
@@ -94,6 +130,7 @@ function updateUploadedFilesList() {
       <strong>${file.name}</strong> (ID: ${file.id})<br>
       <small>Uploaded: ${file.uploadTime}</small>
       <button onclick="downloadFile('${file.id}')" style="margin-left: 10px;">Download</button>
+      <button onclick="removeFile('${file.id}')" style="margin-left: 5px; background-color: #dc3545; color: white;">Remove</button>
     `;
     list.appendChild(listItem);
   });
@@ -102,6 +139,11 @@ function updateUploadedFilesList() {
 // Global function for download buttons
 window.downloadFile = function (fileId) {
   handleFileDownload(fileId);
+};
+
+// Global function for remove buttons
+window.removeFile = function (fileId) {
+  handleFileRemove(fileId);
 };
 
 // Wait for DOM to be ready
@@ -118,6 +160,15 @@ document.addEventListener("DOMContentLoaded", function () {
     downloadBtn.addEventListener("click", function () {
       const fileId = document.getElementById("file-id-input").value.trim();
       handleFileDownload(fileId);
+    });
+  }
+
+  // Set up remove button event listener
+  const removeBtn = document.getElementById("remove-btn");
+  if (removeBtn) {
+    removeBtn.addEventListener("click", function () {
+      const fileId = document.getElementById("remove-file-id-input").value.trim();
+      handleFileRemove(fileId);
     });
   }
 });
