@@ -30,10 +30,14 @@ export class MeteorS3 {
     this.config = config;
 
     // State and meta infos about Files of this instance are stored here
-    this.files = Mongo.Collection.get("meteor_s3_files_" + config.name) || new Mongo.Collection("meteor_s3_files_" + config.name);
+    this.files =
+      Mongo.Collection.get("meteor_s3_files_" + config.name) ||
+      new Mongo.Collection("meteor_s3_files_" + config.name);
 
     // Buckets are organized globally across all instances, but each class instance uses exactly one bucket
-    this.buckets = Mongo.Collection.get("meteor_s3_buckets") || new Mongo.Collection("meteor_s3_buckets") ;
+    this.buckets =
+      Mongo.Collection.get("meteor_s3_buckets") ||
+      new Mongo.Collection("meteor_s3_buckets");
 
     // Attach schemas to collections
     Collection2.load().then(() => {
