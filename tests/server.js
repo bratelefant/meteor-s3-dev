@@ -1,7 +1,6 @@
 import { expect } from "chai";
 import sinon from "sinon";
 import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
-import { S3Client } from "@aws-sdk/client-s3";
 import { resetDb } from "./tools";
 
 describe("Test MeteorS3 class", function () {
@@ -238,14 +237,14 @@ describe("Test MeteorS3 class", function () {
       sinon.stub(s3, "ensureBucket").resolves();
       sinon.stub(s3, "ensureMethods").resolves();
       sinon.stub(s3, "ensureCors").resolves();
-      
+
       await s3.init(); // Initialize the S3 instance
-      
+
       // Restore the init-related stubs
       s3.ensureBucket.restore();
       s3.ensureMethods.restore();
       s3.ensureCors.restore();
-      
+
       s3.bucketName = "test-bucket-name";
     });
 
@@ -260,10 +259,10 @@ describe("Test MeteorS3 class", function () {
         size: 1024,
       };
       const fileId = "testFileId";
-      
+
       // Mock files collection
       sinon.stub(s3.files, "insertAsync").resolves(fileId);
-      
+
       // Mock the entire getUploadUrl method to avoid AWS calls
       sinon.stub(s3, "getUploadUrl").callsFake(async (params) => {
         // Create file document
@@ -277,20 +276,22 @@ describe("Test MeteorS3 class", function () {
           createdAt: new Date(),
           meta: {},
         };
-        
+
         const fileId = await s3.files.insertAsync(fileDoc);
-        
+
         return {
           url: "https://s3.amazonaws.com/test-bucket/testFile.txt",
-          fileId: fileId
+          fileId: fileId,
         };
       });
-      
+
       const result = await s3.getUploadUrl(file);
       expect(result).to.be.an("object");
       expect(result).to.have.property("url");
       expect(result).to.have.property("fileId");
-      expect(result.url).to.include("https://s3.amazonaws.com/test-bucket/testFile.txt");
+      expect(result.url).to.include(
+        "https://s3.amazonaws.com/test-bucket/testFile.txt"
+      );
       expect(s3.files.insertAsync.calledOnce).to.be.true;
     });
   });
@@ -359,18 +360,25 @@ describe("Test MeteorS3 class", function () {
         type: "image/jpeg",
         meta: { description: "Test file" },
         userId: "testUser123",
-        context: {}
+        context: {},
       };
 
       // Mock the files collection
-      const insertStub = sinon.stub(s3.files, "insertAsync").resolves("file123");
-      
+      const insertStub = sinon
+        .stub(s3.files, "insertAsync")
+        .resolves("file123");
+
       // Mock the getUploadUrl method to avoid calling getSignedUrl but test the file creation logic
-      const originalGetUploadUrl = s3.getUploadUrl.bind(s3);
+
       sinon.stub(s3, "getUploadUrl").callsFake(async (params) => {
         // Simulate the permission check
         const hasPermission = await s3.handlePermissionsCheck(
-          { name: params.name, size: params.size, type: params.type, meta: params.meta },
+          {
+            name: params.name,
+            size: params.size,
+            type: params.type,
+            meta: params.meta,
+          },
           "upload",
           params.userId,
           params.context
@@ -397,13 +405,13 @@ describe("Test MeteorS3 class", function () {
         };
 
         const fileId = await s3.files.insertAsync(fileDoc);
-        
+
         // Call hooks
         await s3.onBeforeUpload(fileDoc);
 
         return {
           url: "https://mocked-s3-upload-url.com/test-file.jpg",
-          fileId: fileId
+          fileId: fileId,
         };
       });
 
@@ -428,14 +436,14 @@ describe("Test MeteorS3 class", function () {
     it("should handle permission denial", async function () {
       // Disable permission skip for this test
       s3.config.skipPermissionChecks = false;
-      
+
       const uploadParams = {
         name: "test-file.txt",
         size: 512,
         type: "text/plain",
         meta: {},
         userId: "testUser789",
-        context: {}
+        context: {},
       };
 
       // Mock permission check to deny access
@@ -457,17 +465,21 @@ describe("Test MeteorS3 class", function () {
         type: "application/pdf",
         meta: {},
         userId: "testUser456",
-        context: {}
+        context: {},
       };
 
-      const insertStub = sinon.stub(s3.files, "insertAsync").resolves("file456");
-      
+      const insertStub = sinon
+        .stub(s3.files, "insertAsync")
+        .resolves("file456");
+
       // Test uses the mocked version, but we can verify the status logic
       await s3.getUploadUrl(uploadParams);
 
       const fileDoc = insertStub.firstCall.args[0];
       // In development (which Meteor.isDevelopment returns true), status should be "uploaded"
-      expect(fileDoc.status).to.equal(Meteor.isDevelopment ? "uploaded" : "pending");
+      expect(fileDoc.status).to.equal(
+        Meteor.isDevelopment ? "uploaded" : "pending"
+      );
     });
 
     it("should include metadata in file document", async function () {
@@ -475,24 +487,26 @@ describe("Test MeteorS3 class", function () {
         name: "meta-test.jpg",
         size: 1024,
         type: "image/jpeg",
-        meta: { 
+        meta: {
           category: "profile",
           tags: ["important", "user-generated"],
-          author: "testUser"
+          author: "testUser",
         },
         userId: "testUser123",
-        context: {}
+        context: {},
       };
 
-      const insertStub = sinon.stub(s3.files, "insertAsync").resolves("file123");
-      
+      const insertStub = sinon
+        .stub(s3.files, "insertAsync")
+        .resolves("file123");
+
       await s3.getUploadUrl(uploadParams);
 
       const fileDoc = insertStub.firstCall.args[0];
       expect(fileDoc.meta).to.deep.equal({
         category: "profile",
         tags: ["important", "user-generated"],
-        author: "testUser"
+        author: "testUser",
       });
     });
   });
