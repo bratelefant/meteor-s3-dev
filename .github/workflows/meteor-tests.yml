@@ -1,0 +1,63 @@
+name: Meteor Tests
+
+on:
+  push:
+    branches: [main, devel]
+  pull_request:
+    branches: [main, devel]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Cache Meteor
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.meteor
+            .meteor/local
+          key: ${{ runner.os }}-meteor-${{ hashFiles('.meteor/versions') }}
+          restore-keys: |
+            ${{ runner.os }}-meteor-
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install Meteor
+        run: |
+          if [ ! -d ~/.meteor ]; then
+            curl https://install.meteor.com/ | sh
+          fi
+          echo "$HOME/.meteor" >> $GITHUB_PATH
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run Meteor tests
+        run: npm run test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            .meteor/local/log/
+            coverage/

@@ -30,7 +30,6 @@ async function handleFileUpload(event) {
     const fileId = await s3Client.uploadFile(file, {}, (progress) => {
       statusDiv.innerHTML = `Uploading... ${progress}%`;
     });
-    console.log(`File uploaded successfully with ID: ${fileId}`);
 
     // Update UI
     statusDiv.innerHTML = "Upload successful!";
@@ -69,7 +68,6 @@ async function handleFileDownload(fileId) {
 
   try {
     const downloadUrl = await s3Client.getDownloadUrl(fileId);
-    console.log(`Download URL for file ${fileId}: ${downloadUrl}`);
 
     statusDiv.innerHTML = "Opening file in new tab!";
     statusDiv.style.color = "green";
@@ -98,8 +96,6 @@ async function handleFileRemove(fileId) {
 
   try {
     await s3Client.removeFile(fileId);
-    console.log(`File removed successfully: ${fileId}`);
-
     statusDiv.innerHTML = "File removed successfully!";
     statusDiv.style.color = "green";
 

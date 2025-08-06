@@ -18,25 +18,6 @@ import "meteor/aldeed:collection2/dynamic";
 import { MeteorS3FilesSchema } from "./schemas/files";
 
 /**
- * internal helper function to generate a valid S3 bucket name
- * @param {*} instanceName
- * @returns
- */
-function generateValidBucketName(instanceName) {
-  const slugified = instanceName
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-") // nur a-z, 0-9, -
-    .replace(/^-+/, "") // führende - entfernen
-    .replace(/-+$/, "") // abschließende - entfernen
-    .replace(/--+/g, "-"); // doppelte -- zu einem -
-
-  const randomSuffix = Random.id(6).toLowerCase(); // z.B. "a9x7kq"
-  const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
-
-  return baseName.substring(0, 63); // max 63 Zeichen laut S3-Regeln
-}
-
-/**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
  * It also manages the file metadata in a MongoDB collection.
  * Each instance must have a unique name, so you can have multiple instances of MeteorS3 in your application.
@@ -44,16 +25,27 @@ function generateValidBucketName(instanceName) {
  */
 export class MeteorS3 {
   constructor(config) {
+    // check if the config is valid and set it
     configSchema.validate(config);
     this.config = config;
+
     // State and meta infos about Files of this instance are stored here
-    this.files = new Mongo.Collection("meteor_s3_files_" + config.name);
+    this.files =
+      Mongo.Collection.get("meteor_s3_files_" + config.name) ||
+      new Mongo.Collection("meteor_s3_files_" + config.name);
+
     // Buckets are organized globally across all instances, but each class instance uses exactly one bucket
-    this.buckets = new Mongo.Collection("meteor_s3_buckets");
+    this.buckets =
+      Mongo.Collection.get("meteor_s3_buckets") ||
+      new Mongo.Collection("meteor_s3_buckets");
+
+    // Attach schemas to collections
     Collection2.load().then(() => {
       this.buckets.attachSchema(MeteorS3BucketsSchema);
       this.files.attachSchema(MeteorS3FilesSchema);
     });
+
+    // Create indexes for faster access and ensure uniqueness
     this.buckets
       .createIndexAsync({ instanceName: 1 }, { unique: true })
       .catch((e) => {
@@ -62,9 +54,11 @@ export class MeteorS3 {
           e
         );
       });
+
     // Initialize empty hooks. Override these in your app to add custom behavior.
-    this.onBeforeUpload = async () => {};
-    this.onAfterUpload = async () => {};
+    this.onBeforeUpload = async (_fileDoc) => {};
+    this.onAfterUpload = async (_fileDoc) => {};
+
     // actions are "upload", "download" or "delete"
     this.onCheckPermissions =
       this.config.onCheckPermissions ||
@@ -75,6 +69,25 @@ export class MeteorS3 {
         );
         return false; // Deny all actions by default
       });
+  }
+
+  /**
+   * internal helper function to generate a valid S3 bucket name
+   * @param {String} instanceName - The name of the instance to generate a bucket name for.
+   * @returns {String} - A valid S3 bucket name based on the instance name.
+   */
+  static generateValidBucketName(instanceName) {
+    const slugified = instanceName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
+      .replace(/--+/g, "-");
+
+    const randomSuffix = Random.id(6).toLowerCase();
+    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
+
+    return baseName.substring(0, 63);
   }
 
   /**
@@ -110,8 +123,11 @@ export class MeteorS3 {
 
     // Check, if there is already a bucket registered for this instance
     await this.ensureBucket();
+
     // Minio does not support CORS, and we dont need it when working locally.
     if (!this.config.endpoint?.includes("localhost")) await this.ensureCors();
+
+    // Ensure that the methods for file uploads and downloads are available
     await this.ensureMethods();
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
@@ -121,6 +137,7 @@ export class MeteorS3 {
    * If it does not exist, it will be created.
    * If it exists, it will be registered in the database.
    * This will also set this.bucketName properties.
+   * @returns {Promise<void>}
    */
   async ensureBucket() {
     const existingBucket = await this.buckets.findOneAsync({
@@ -157,7 +174,7 @@ export class MeteorS3 {
       // Create a new bucket
       const newBucket = {
         instanceName: this.config.name,
-        bucketName: generateValidBucketName(this.config.name),
+        bucketName: MeteorS3.generateValidBucketName(this.config.name),
         region: this.config.region,
         createdAt: new Date(),
       };
