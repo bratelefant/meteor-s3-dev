@@ -1,6 +1,7 @@
 import assert from "assert";
+import "./server";
 
-describe("meteor-app", function () {
+describe("check test environment", function () {
   it("package.json has correct name", async function () {
     const { name } = await import("../package.json");
     assert.strictEqual(name, "meteor-app");
