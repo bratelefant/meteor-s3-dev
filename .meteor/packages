@@ -19,3 +19,4 @@ hot-module-replacement@0.5.4  # Rebuilds the client if there is a change on the 
 
 bratelefant:meteor-s3
 accounts-base
+dburles:mongo-collection-instances
