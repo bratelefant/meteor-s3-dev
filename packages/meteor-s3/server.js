@@ -137,6 +137,7 @@ export class MeteorS3 {
    * If it does not exist, it will be created.
    * If it exists, it will be registered in the database.
    * This will also set this.bucketName properties.
+   * @returns {Promise<void>}
    */
   async ensureBucket() {
     const existingBucket = await this.buckets.findOneAsync({
