@@ -15,14 +15,8 @@ const s3 = new MeteorS3({
   skipPermissionChecks: false, // Optional, this defaults to false
   uploadExpiresIn: 60, // Optional, sets the expiration time for the presigned put urls; this defaults to 60 seconds
   downloadExpiresIn: 60, // Optional, sets the expiration time for the presigned get urls; this defaults to 60 seconds
-  onCheckPermissions: async (fileDoc, action, userId, context) => {
-    // Default permission check logic
-    console.log(
-      `Checking permissions for action: ${action} on file: ${fileDoc.name} by user: ${userId}`,
-      "Context:",
-      context
-    );
-    return true; // Deny all actions by default
+  onCheckPermissions: async (_fileDoc, _action, _userId, _context) => {
+    return true; // Allow all actions by default
   },
 });
 
@@ -40,8 +34,10 @@ Meteor.startup(async () => {
       type: "text/plain",
     });
     fileId = await s3Client.uploadFile(testFile, { test: true }, (progress) => {
+      // eslint-disable-next-line no-console
       console.log(`Upload progress: ${progress}%`);
     });
+    // eslint-disable-next-line no-console
     console.log(`Test file uploaded successfully with ID: ${fileId}`);
   } catch (error) {
     console.error("Error uploading test file:", error);
@@ -50,6 +46,7 @@ Meteor.startup(async () => {
   // Download the file to verify the upload
   try {
     const blob = await s3Client.downloadFile(fileId);
+    // eslint-disable-next-line no-console
     console.log(
       `Test file downloaded successfully: ${blob.size} bytes, contents:`,
       blob
