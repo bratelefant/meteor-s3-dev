@@ -75,25 +75,6 @@ export class MeteorS3 {
   }
 
   /**
-   * internal helper function to generate a valid S3 bucket name
-   * @param {String} instanceName - The name of the instance to generate a bucket name for.
-   * @returns {String} - A valid S3 bucket name based on the instance name.
-   */
-  static generateValidBucketName(instanceName) {
-    const slugified = instanceName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+/, "")
-      .replace(/-+$/, "")
-      .replace(/--+/g, "-");
-
-    const randomSuffix = Random.id(6).toLowerCase();
-    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
-
-    return baseName.substring(0, 63);
-  }
-
-  /**
    * Initializes the S3 client and ensures the bucket for this instance exists.
    * This also sets up the server methods for file uploads and downloads.
    * This method should be called once when the application starts.
@@ -133,6 +114,25 @@ export class MeteorS3 {
     // Ensure that the methods for file uploads and downloads are available
     await this.ensureMethods();
     this.log(`S3 client ${this.config.name} initialized successfully.`);
+  }
+
+  /**
+   * internal helper function to generate a valid S3 bucket name
+   * @param {String} instanceName - The name of the instance to generate a bucket name for.
+   * @returns {String} - A valid S3 bucket name based on the instance name.
+   */
+  static generateValidBucketName(instanceName) {
+    const slugified = instanceName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
+      .replace(/--+/g, "-");
+
+    const randomSuffix = Random.id(6).toLowerCase();
+    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
+
+    return baseName.substring(0, 63);
   }
 
   /**
@@ -464,6 +464,15 @@ export class MeteorS3 {
     });
   }
 
+  /**
+   * Removes a file from S3 and the database.
+   * @param {Object} param0 - The parameters for removing the file.
+   * @param {String} param0.fileId - The ID of the file to be removed.
+   * @param {Object} [param0.context={}] - Additional context for permission checks (optional).
+   * @param {String} [param0.userId] - The ID of the user requesting the removal (optional).
+   * @throws {Meteor.Error} If the file does not exist or if the user does not have permission to remove the file.
+   * @returns {Promise<void>}
+   */
   async removeFile({ fileId, context = {}, userId }) {
     // Validate the file document
     check(fileId, String);
