@@ -4,7 +4,7 @@ import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
 import { resetDb } from "./tools";
 import { Random } from "meteor/random";
 
-describe("Test MeteorS3 class", function () {
+describe("Test Meteor S3 initialisation", function () {
   describe("constructor", function () {
     it("should throw an error if config is not provided", function () {
       expect(() => new MeteorS3()).to.throw();
@@ -68,132 +68,28 @@ describe("Test MeteorS3 class", function () {
       expect(s3.s3Client.send).to.be.a("function");
     });
   });
+});
 
-  describe("ensureBucket", function () {
-    let s3;
+describe("Test MeteorS3 class", function () {
+  let s3;
 
-    beforeEach(async function () {
-      await resetDb(); // Reset the database before each test
+  beforeEach(async function () {
+    await resetDb(); // Reset the database before each test
 
-      const config = {
-        name: "testBucket4",
-        accessKeyId: "testAccessKey",
-        secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:4566", // Use localstack instance
-      };
-      s3 = new MeteorS3(config);
+    const config = {
+      name: "testBucket" + Random.id(6),
+      accessKeyId: "testAccessKey",
+      secretAccessKey: "testSecretKey",
+      endpoint: "http://localhost:4566", // Use localstack instance
+      onCheckPermissions: () => true, // Mock permission check
+    };
+    s3 = new MeteorS3(config);
 
-      await s3.init(); // Initialize the S3 instance
-    });
-
-    afterEach(function () {
-      sinon.restore(); // Restore original methods
-    });
-
-    it("should create a new bucket if it does not exist", async function () {
-      const bucketName = "test-bucket-12345";
-      s3.config.name = bucketName;
-
-      sinon.stub(s3.buckets, "findOneAsync").resolves(null); // Mock no existing bucket
-      sinon.stub(s3.buckets, "insertAsync").resolves(); // Mock insert operation
-      sinon.spy(s3.s3Client, "send");
-
-      await s3.ensureBucket();
-
-      // Check that bucket name follows the expected pattern (includes the original name and a random suffix)
-      expect(s3.bucketName).to.match(
-        /^meteor-s3-test-bucket-12345-[a-z0-9]{6}$/
-      );
-      expect(s3.buckets.insertAsync.calledOnce).to.be.true;
-      expect(s3.s3Client.send.called).to.be.true;
-    });
+    await s3.init(); // Initialize the S3 instance
   });
 
-  describe("ensureMethods", function () {
-    let s3;
-
-    beforeEach(async function () {
-      await resetDb(); // Reset the database before each test
-
-      const config = {
-        name: "testBucket6",
-        accessKeyId: "testAccessKey",
-        secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:4566", // Use localstack instance
-      };
-      s3 = new MeteorS3(config);
-
-      await s3.init(); // Initialize the S3 instance
-    });
-
-    afterEach(function () {
-      sinon.restore(); // Restore original methods
-    });
-
-    it("should register S3 methods in Meteor", async function () {
-      const registerStub = sinon.stub(Meteor, "methods");
-
-      await s3.ensureMethods();
-
-      expect(registerStub.calledOnce).to.be.true;
-      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
-        "meteorS3." + s3.config.name + ".getUploadUrl"
-      );
-      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
-        "meteorS3." + s3.config.name + ".getDownloadUrl"
-      );
-      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
-        "meteorS3." + s3.config.name + ".handleFileUploadEvent"
-      );
-      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
-        "meteorS3." + s3.config.name + ".removeFile"
-      );
-    });
-  });
-
-  describe("getUploadUrl", function () {
-    let s3;
-    beforeEach(async function () {
-      await resetDb(); // Reset the database before each test
-
-      const config = {
-        name: "testBucket7",
-        accessKeyId: "testAccessKey",
-        secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:4566", // Use localstack instance
-        onCheckPermissions: () => true,
-        skipPermissionChecks: true,
-      };
-
-      s3 = new MeteorS3(config);
-
-      await s3.init(); // Initialize the S3 instance
-
-      s3.bucketName = "test-bucket-name";
-    });
-
-    afterEach(function () {
-      sinon.restore(); // Restore original methods
-    });
-
-    it("should return a valid upload URL for a file", async function () {
-      const file = {
-        name: "testFile.txt",
-        type: "text/plain",
-        size: 1024,
-      };
-      const fileId = "testFileId";
-
-      // Mock files collection
-      sinon.stub(s3.files, "insertAsync").resolves(fileId);
-
-      const result = await s3.getUploadUrl(file);
-      expect(result).to.be.an("object");
-      expect(result).to.have.property("url");
-      expect(result).to.have.property("fileId");
-      expect(result.url).to.include("testFile.txt");
-      expect(s3.files.insertAsync.calledOnce).to.be.true;
-    });
+  afterEach(function () {
+    sinon.restore(); // Restore original methods
   });
 
   describe("generateValidBucketName", function () {
@@ -217,30 +113,66 @@ describe("Test MeteorS3 class", function () {
     });
   });
 
-  describe("getUploadUrl", function () {
-    let s3;
+  describe("ensureBucket", function () {
+    it("should create a new bucket if it does not exist", async function () {
+      const bucketName = "test-bucket-12345";
+      s3.config.name = bucketName;
 
-    beforeEach(async function () {
-      await resetDb(); // Reset the database before each test
+      sinon.stub(s3.buckets, "findOneAsync").resolves(null); // Mock no existing bucket
+      sinon.stub(s3.buckets, "insertAsync").resolves(); // Mock insert operation
+      sinon.spy(s3.s3Client, "send");
 
-      const config = {
-        name: "testBucket" + Random.id(5),
-        accessKeyId: "testAccessKey",
-        secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:4566", // Use localstack instance
-        uploadExpiresIn: 3600,
-        skipPermissionChecks: true, // Skip permission checks for testing
-      };
-      s3 = new MeteorS3(config);
+      await s3.ensureBucket();
 
-      await s3.init(); // Initialize the S3 instance
-
-      // Set a test bucket name
-      s3.bucketName = "test-bucket-name";
+      // Check that bucket name follows the expected pattern (includes the original name and a random suffix)
+      expect(s3.bucketName).to.match(
+        /^meteor-s3-test-bucket-12345-[a-z0-9]{6}$/
+      );
+      expect(s3.buckets.insertAsync.calledOnce).to.be.true;
+      expect(s3.s3Client.send.called).to.be.true;
     });
+  });
 
-    afterEach(function () {
-      sinon.restore(); // Restore all stubs
+  describe("ensureMethods", function () {
+    it("should register S3 methods in Meteor", async function () {
+      const registerStub = sinon.stub(Meteor, "methods");
+
+      await s3.ensureMethods();
+
+      expect(registerStub.calledOnce).to.be.true;
+      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
+        "meteorS3." + s3.config.name + ".getUploadUrl"
+      );
+      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
+        "meteorS3." + s3.config.name + ".getDownloadUrl"
+      );
+      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
+        "meteorS3." + s3.config.name + ".handleFileUploadEvent"
+      );
+      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
+        "meteorS3." + s3.config.name + ".removeFile"
+      );
+    });
+  });
+
+  describe("getUploadUrl", function () {
+    it("should return a valid upload URL for a file", async function () {
+      const file = {
+        name: "testFile.txt",
+        type: "text/plain",
+        size: 1024,
+      };
+      const fileId = "testFileId";
+
+      // Mock files collection
+      sinon.stub(s3.files, "insertAsync").resolves(fileId);
+
+      const result = await s3.getUploadUrl(file);
+      expect(result).to.be.an("object");
+      expect(result).to.have.property("url");
+      expect(result).to.have.property("fileId");
+      expect(result.url).to.include("testFile.txt");
+      expect(s3.files.insertAsync.calledOnce).to.be.true;
     });
 
     it("should create file document with correct properties", async function () {
@@ -272,7 +204,9 @@ describe("Test MeteorS3 class", function () {
       expect(fileDoc.filename).to.equal("test-file.jpg");
       expect(fileDoc.size).to.equal(1024);
       expect(fileDoc.mimeType).to.equal("image/jpeg");
-      expect(fileDoc.bucket).to.equal("test-bucket-name");
+      expect(fileDoc.bucket).to.match(
+        /^meteor-s3-testbucket[a-z0-9]{6}-[a-z0-9]{6}$/
+      );
       expect(fileDoc.meta.description).to.equal("Test file");
     });
 
@@ -351,6 +285,42 @@ describe("Test MeteorS3 class", function () {
         tags: ["important", "user-generated"],
         author: "testUser",
       });
+    });
+  });
+
+  describe("getDownloadUrl", function () {
+    it("should return a valid download URL for a file", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3, "handlePermissionsCheck").resolves(true);
+
+      const result = await s3.getDownloadUrl({ fileId });
+
+      expect(result).to.be.a("string");
+      expect(result).to.include("http");
+    });
+
+    it("should throw an error if file does not exist", async function () {
+      const fileId = "nonExistentFileId";
+
+      // Mock files collection to return null
+      sinon.stub(s3.files, "findOneAsync").resolves(null);
+
+      try {
+        await s3.getDownloadUrl({ fileId });
+        expect.fail("Should have thrown file not found error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-file-not-found");
+      }
     });
   });
 });
