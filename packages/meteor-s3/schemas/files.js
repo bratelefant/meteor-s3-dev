@@ -3,7 +3,11 @@ import SimpleSchema from "meteor/aldeed:simple-schema";
 export const MeteorS3FilesSchema = new SimpleSchema({
   filename: String,
   size: Number,
-  mimeType: String,
+  mimeType: {
+    type: String,
+    optional: true,
+    defaultValue: "application/octet-stream",
+  },
   key: String,
   bucket: String,
   etag: { type: String, optional: true },

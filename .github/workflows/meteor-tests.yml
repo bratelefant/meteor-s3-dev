@@ -50,6 +50,12 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Setup LocalStack
+        uses: localstack/setup-localstack@v0.2.4
+        with:
+          image-tag: 'latest'
+          install-awslocal: 'true'
+
       - name: Run Meteor tests
         run: npm run test
 

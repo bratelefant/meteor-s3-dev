@@ -2,6 +2,7 @@ import { expect } from "chai";
 import sinon from "sinon";
 import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
 import { resetDb } from "./tools";
+import { Random } from "meteor/random";
 
 describe("Test MeteorS3 class", function () {
   describe("constructor", function () {
@@ -16,7 +17,7 @@ describe("Test MeteorS3 class", function () {
         secretAccessKey: "testSecretKey",
       };
       const s3 = new MeteorS3(config);
-      expect(s3.config).to.deep.equal(config);
+      expect(s3.config).to.deep.include(config);
     });
   });
 
@@ -34,24 +35,20 @@ describe("Test MeteorS3 class", function () {
         name: "testBucket2",
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:9000",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566", // Use localstack instance
       };
       const s3 = new MeteorS3(config);
-
-      // Mock the internal methods that make actual S3 calls
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
+      sinon.spy(s3, "ensureBucket");
+      sinon.spy(s3, "ensureMethods");
+      sinon.spy(s3, "ensureCors");
 
       await s3.init();
 
       expect(s3.ensureBucket.calledOnce).to.be.true;
       expect(s3.ensureMethods.calledOnce).to.be.true;
-      expect(s3.ensureCors.calledOnce).to.be.false; // no cors if endpoint contains "localhost"
+      expect(s3.ensureCors.calledOnce).to.be.true;
       expect(s3.config.name).to.equal("testBucket2");
-      expect(s3.config.endpoint).to.equal("http://localhost:9000");
-      expect(s3.config.region).to.equal("us-east-1");
+      expect(s3.config.endpoint).to.equal("http://localhost:4566");
     });
 
     it("should initialize and create s3Client instance", async function () {
@@ -59,45 +56,16 @@ describe("Test MeteorS3 class", function () {
         name: "testBucket5",
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        endpoint: "http://localhost:9000",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566",
       };
 
       const s3 = new MeteorS3(config);
-
-      // Mock the methods that make actual AWS calls
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
 
       await s3.init();
 
       // Verify that s3Client was created
       expect(s3.s3Client).to.exist;
       expect(s3.s3Client.send).to.be.a("function");
-    });
-
-    it("calls ensureCors if endpoint is not localhost", async function () {
-      const config = {
-        name: "testBucket3",
-        accessKeyId: "testAccessKey",
-        secretAccessKey: "testSecretKey",
-        endpoint: "https://s3.amazonaws.com",
-        region: "us-east-1",
-      };
-      const s3 = new MeteorS3(config);
-      sinon.stub(s3, "ensureBucket").resolves(); // Mock ensureBucket method
-      sinon.stub(s3, "ensureMethods").resolves(); // Mock ensureMethods method
-      sinon.stub(s3, "ensureCors").resolves(); // Mock ensureCors method
-
-      await s3.init();
-
-      expect(s3.ensureBucket.calledOnce).to.be.true;
-      expect(s3.ensureMethods.calledOnce).to.be.true;
-      expect(s3.ensureCors.calledOnce).to.be.true;
-      expect(s3.config.name).to.equal("testBucket3");
-      expect(s3.config.endpoint).to.equal("https://s3.amazonaws.com");
-      expect(s3.config.region).to.equal("us-east-1");
     });
   });
 
@@ -111,19 +79,11 @@ describe("Test MeteorS3 class", function () {
         name: "testBucket4",
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566", // Use localstack instance
       };
       s3 = new MeteorS3(config);
 
-      // Mock the methods that make actual AWS calls during init
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
-
       await s3.init(); // Initialize the S3 instance
-
-      // Restore the ensureBucket stub so we can test the real method
-      s3.ensureBucket.restore();
     });
 
     afterEach(function () {
@@ -136,26 +96,7 @@ describe("Test MeteorS3 class", function () {
 
       sinon.stub(s3.buckets, "findOneAsync").resolves(null); // Mock no existing bucket
       sinon.stub(s3.buckets, "insertAsync").resolves(); // Mock insert operation
-
-      // Mock the S3 client calls
-      const mockS3Client = {
-        send: sinon.stub().callsFake((command) => {
-          if (command.constructor.name === "HeadBucketCommand") {
-            // Simulate bucket doesn't exist
-            const error = new Error("NotFound");
-            error.name = "NotFound";
-            throw error;
-          }
-          if (command.constructor.name === "CreateBucketCommand") {
-            // Simulate successful bucket creation
-            return Promise.resolve({ Location: `/${bucketName}` });
-          }
-          return Promise.resolve({});
-        }),
-      };
-
-      // Replace the s3Client with our mock
-      s3.s3Client = mockS3Client;
+      sinon.spy(s3.s3Client, "send");
 
       await s3.ensureBucket();
 
@@ -164,7 +105,7 @@ describe("Test MeteorS3 class", function () {
         /^meteor-s3-test-bucket-12345-[a-z0-9]{6}$/
       );
       expect(s3.buckets.insertAsync.calledOnce).to.be.true;
-      expect(mockS3Client.send.called).to.be.true;
+      expect(s3.s3Client.send.called).to.be.true;
     });
   });
 
@@ -178,19 +119,11 @@ describe("Test MeteorS3 class", function () {
         name: "testBucket6",
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566", // Use localstack instance
       };
       s3 = new MeteorS3(config);
 
-      // Mock the methods that make actual AWS calls during init
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
-
       await s3.init(); // Initialize the S3 instance
-
-      // Restore the ensureMethods stub so we can test the real method
-      s3.ensureMethods.restore();
     });
 
     afterEach(function () {
@@ -227,23 +160,14 @@ describe("Test MeteorS3 class", function () {
         name: "testBucket7",
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566", // Use localstack instance
         onCheckPermissions: () => true,
         skipPermissionChecks: true,
       };
 
       s3 = new MeteorS3(config);
-      // Mock the methods that make actual AWS calls during init
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
 
       await s3.init(); // Initialize the S3 instance
-
-      // Restore the init-related stubs
-      s3.ensureBucket.restore();
-      s3.ensureMethods.restore();
-      s3.ensureCors.restore();
 
       s3.bucketName = "test-bucket-name";
     });
@@ -263,35 +187,11 @@ describe("Test MeteorS3 class", function () {
       // Mock files collection
       sinon.stub(s3.files, "insertAsync").resolves(fileId);
 
-      // Mock the entire getUploadUrl method to avoid AWS calls
-      sinon.stub(s3, "getUploadUrl").callsFake(async (params) => {
-        // Create file document
-        const fileDoc = {
-          filename: params.name,
-          size: params.size,
-          mimeType: params.type,
-          key: `uploads/${params.name}`,
-          bucket: s3.bucketName,
-          status: "pending",
-          createdAt: new Date(),
-          meta: {},
-        };
-
-        const fileId = await s3.files.insertAsync(fileDoc);
-
-        return {
-          url: "https://s3.amazonaws.com/test-bucket/testFile.txt",
-          fileId: fileId,
-        };
-      });
-
       const result = await s3.getUploadUrl(file);
       expect(result).to.be.an("object");
       expect(result).to.have.property("url");
       expect(result).to.have.property("fileId");
-      expect(result.url).to.include(
-        "https://s3.amazonaws.com/test-bucket/testFile.txt"
-      );
+      expect(result.url).to.include("testFile.txt");
       expect(s3.files.insertAsync.calledOnce).to.be.true;
     });
   });
@@ -324,26 +224,16 @@ describe("Test MeteorS3 class", function () {
       await resetDb(); // Reset the database before each test
 
       const config = {
-        name: "testBucket6",
+        name: "testBucket" + Random.id(5),
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
-        region: "us-east-1",
+        endpoint: "http://localhost:4566", // Use localstack instance
         uploadExpiresIn: 3600,
         skipPermissionChecks: true, // Skip permission checks for testing
       };
       s3 = new MeteorS3(config);
 
-      // Mock the methods that make actual AWS calls during init
-      sinon.stub(s3, "ensureBucket").resolves();
-      sinon.stub(s3, "ensureMethods").resolves();
-      sinon.stub(s3, "ensureCors").resolves();
-
       await s3.init(); // Initialize the S3 instance
-
-      // Restore the init-related stubs
-      s3.ensureBucket.restore();
-      s3.ensureMethods.restore();
-      s3.ensureCors.restore();
 
       // Set a test bucket name
       s3.bucketName = "test-bucket-name";
@@ -368,59 +258,12 @@ describe("Test MeteorS3 class", function () {
         .stub(s3.files, "insertAsync")
         .resolves("file123");
 
-      // Mock the getUploadUrl method to avoid calling getSignedUrl but test the file creation logic
-
-      sinon.stub(s3, "getUploadUrl").callsFake(async (params) => {
-        // Simulate the permission check
-        const hasPermission = await s3.handlePermissionsCheck(
-          {
-            name: params.name,
-            size: params.size,
-            type: params.type,
-            meta: params.meta,
-          },
-          "upload",
-          params.userId,
-          params.context
-        );
-
-        if (!hasPermission) {
-          throw new Meteor.Error(
-            "s3-permission-denied",
-            "You do not have permission to upload this file."
-          );
-        }
-
-        // Create file document (similar to the real implementation)
-        const fileDoc = {
-          filename: params.name,
-          size: params.size,
-          mimeType: params.type,
-          key: `uploads/test-key-${params.name}`,
-          bucket: s3.bucketName,
-          status: Meteor.isDevelopment ? "uploaded" : "pending",
-          ownerId: params.context?.userId,
-          createdAt: new Date(),
-          meta: params.meta,
-        };
-
-        const fileId = await s3.files.insertAsync(fileDoc);
-
-        // Call hooks
-        await s3.onBeforeUpload(fileDoc);
-
-        return {
-          url: "https://mocked-s3-upload-url.com/test-file.jpg",
-          fileId: fileId,
-        };
-      });
-
       const result = await s3.getUploadUrl(uploadParams);
 
       // Verify the result
       expect(result).to.have.property("url");
       expect(result).to.have.property("fileId");
-      expect(result.url).to.include("mocked-s3-upload-url.com");
+      expect(result.url).to.include("test-file.jpg");
       expect(result.fileId).to.equal("file123");
 
       // Verify file document was created

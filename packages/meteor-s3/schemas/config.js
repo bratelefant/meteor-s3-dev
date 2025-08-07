@@ -20,7 +20,7 @@ export const configSchema = new SimpleSchema({
     type: String,
     label: "AWS Region",
     optional: true,
-    defaultValue: "eu-central-1",
+    autoValue: () => "eu-central-1", // Default region
   },
   verbose: {
     type: Boolean,

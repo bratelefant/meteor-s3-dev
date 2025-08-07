@@ -26,8 +26,11 @@ import { MeteorS3FilesSchema } from "./schemas/files";
 export class MeteorS3 {
   constructor(config) {
     // check if the config is valid and set it
-    configSchema.validate(config);
-    this.config = config;
+
+    const cleanedConfig = configSchema.clean(config);
+    configSchema.validate(cleanedConfig);
+
+    this.config = cleanedConfig;
 
     // State and meta infos about Files of this instance are stored here
     this.files =
@@ -125,7 +128,7 @@ export class MeteorS3 {
     await this.ensureBucket();
 
     // Minio does not support CORS, and we dont need it when working locally.
-    if (!this.config.endpoint?.includes("localhost")) await this.ensureCors();
+    await this.ensureCors();
 
     // Ensure that the methods for file uploads and downloads are available
     await this.ensureMethods();
