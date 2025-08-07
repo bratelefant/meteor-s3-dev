@@ -381,15 +381,17 @@ export class MeteorS3 {
       key: params.Key,
       bucket: this.bucketName,
       status: Meteor.isDevelopment ? "uploaded" : "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
-      ownerId: context?.userId, // Set this if you have user management
+      ownerId: userId, // Set this if you have user management
       createdAt: new Date(),
       meta,
     };
 
     const fileId = await this.files.insertAsync(fileDoc);
 
+    const fileDocDb = await this.files.findOneAsync(fileId);
+
     // call hook before upload
-    await this.onBeforeUpload(fileDoc);
+    await this.onBeforeUpload(fileDocDb);
 
     const url = await getSignedUrl(
       this.s3Client,

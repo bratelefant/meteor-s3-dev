@@ -3,6 +3,7 @@ import sinon from "sinon";
 import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
 import { resetDb } from "./tools";
 import { Random } from "meteor/random";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 describe("Test Meteor S3 initialisation", function () {
   describe("constructor", function () {
@@ -210,6 +211,33 @@ describe("Test MeteorS3 class", function () {
       expect(fileDoc.meta.description).to.equal("Test file");
     });
 
+    it("should call onBeforeUpload hook if defined", async function () {
+      const uploadParams = {
+        name: "before-upload-test.txt",
+        size: 512,
+        type: "text/plain",
+        meta: {},
+        userId: "testUser456",
+        context: {},
+      };
+
+      const onBeforeUploadStub = sinon.stub();
+      s3.onBeforeUpload = onBeforeUploadStub;
+      const result = await s3.getUploadUrl(uploadParams); // Call the method
+
+      expect(onBeforeUploadStub.calledOnce).to.be.true;
+
+      expect(onBeforeUploadStub.firstCall.args[0]).to.deep.include({
+        filename: "before-upload-test.txt",
+        size: 512,
+        mimeType: "text/plain",
+        meta: {},
+        ownerId: "testUser456",
+      });
+      expect(result).to.have.property("url");
+      expect(result).to.have.property("fileId");
+    });
+
     it("should handle permission denial", async function () {
       // Disable permission skip for this test
       s3.config.skipPermissionChecks = false;
@@ -321,6 +349,170 @@ describe("Test MeteorS3 class", function () {
       } catch (error) {
         expect(error.error).to.equal("s3-file-not-found");
       }
+    });
+
+    it("should throw an error if permissions are denied", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3, "handlePermissionsCheck").resolves(false);
+
+      try {
+        await s3.getDownloadUrl({ fileId });
+        expect.fail("Should have thrown permission denied error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-permission-denied");
+      }
+    });
+
+    it("should throw an error if file is not uploaded", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "pending", // Not uploaded yet
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3, "handlePermissionsCheck").resolves(true);
+
+      try {
+        await s3.getDownloadUrl({ fileId });
+        expect.fail("Should have thrown file not uploaded error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-file-not-ready");
+      }
+    });
+  });
+
+  describe("removeFile", function () {
+    it("should remove a file by ID", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3.files, "removeAsync").resolves();
+      sinon.stub(s3.s3Client, "send").resolves();
+
+      await s3.removeFile({ fileId });
+
+      expect(s3.files.findOneAsync.calledWith(fileId)).to.be.true;
+      expect(s3.files.removeAsync.calledWith(fileId)).to.be.true;
+    });
+
+    it("should throw an error if file does not exist", async function () {
+      const fileId = "nonExistentFileId";
+
+      // Mock files collection to return null
+      sinon.stub(s3.files, "findOneAsync").resolves(null);
+
+      try {
+        await s3.removeFile({ fileId });
+        expect.fail("Should have thrown file not found error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-file-not-found");
+      }
+    });
+  });
+
+  describe("handleFileUploadEvent", function () {
+    it("should handle file upload event", async function () {
+      const fileId = "testFileId";
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves({
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "pending",
+      });
+      sinon.stub(s3.files, "updateAsync").resolves();
+
+      // upload test file to s3
+      await s3.s3Client.send(
+        new PutObjectCommand({
+          Bucket: s3.bucketName,
+          Key: "testFileKey",
+          Body: "test file content",
+        })
+      );
+
+      await s3.handleFileUploadEvent(fileId);
+
+      expect(s3.files.findOneAsync.calledWith(fileId)).to.be.true;
+      // Check first argument
+      expect(s3.files.updateAsync.calledWith(fileId)).to.be.true;
+      expect(s3.files.updateAsync.args[0][1].$set).to.have.keys([
+        "status",
+        "etag",
+        "updatedAt",
+      ]);
+    });
+
+    it("should throw an error if file does not exist", async function () {
+      const fileId = "nonExistentFileId";
+
+      // Mock files collection to return null
+      sinon.stub(s3.files, "findOneAsync").resolves(null);
+
+      try {
+        await s3.handleFileUploadEvent(fileId);
+        expect.fail("Should have thrown file not found error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-file-not-found");
+      }
+    });
+
+    it("calls onAfterUpload hook if defined", async function () {
+      const fileId = "testFileId";
+      const onAfterUploadStub = sinon.stub();
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves({
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "pending",
+      });
+      sinon.stub(s3.files, "updateAsync").resolves();
+
+      // Set the onAfterUpload hook
+      s3.onAfterUpload = onAfterUploadStub;
+
+      // upload test file to s3
+      await s3.s3Client.send(
+        new PutObjectCommand({
+          Bucket: s3.bucketName,
+          Key: "testFileKey",
+          Body: "test file content",
+        })
+      );
+
+      await s3.handleFileUploadEvent(fileId);
+
+      expect(onAfterUploadStub.calledOnce).to.be.true;
+
+      s3.onAfterUpload = undefined; // Reset the hook
     });
   });
 });
