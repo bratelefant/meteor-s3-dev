@@ -515,4 +515,48 @@ describe("Test MeteorS3 class", function () {
       s3.onAfterUpload = undefined; // Reset the hook
     });
   });
+
+  describe("handlePermissionChecks", function () {
+    it("should return true, if config.skipPermissionChecks is true", async function () {
+      const userId = "testUserId";
+      const fileId = "testFileId";
+
+      s3.config.skipPermissionChecks = true;
+
+      const result = await s3.handlePermissionsCheck(userId, fileId);
+
+      expect(result).to.be.true;
+    });
+
+    it("should call onCheckPermission hook if defined and if config.skipPermissionChecks is not true", async function () {
+      const userId = "testUserId";
+      const fileId = "testFileId";
+
+      const onCheckPermissionsStub = sinon.stub();
+      s3.onCheckPermissions = onCheckPermissionsStub;
+
+      s3.config.skipPermissionChecks = false;
+
+      await s3.handlePermissionsCheck(userId, fileId);
+
+      expect(onCheckPermissionsStub.calledOnce).to.be.true;
+
+      s3.onCheckPermission = undefined; // Reset the hook
+    });
+
+    it("should return false if user does not have permission", async function () {
+      const userId = "testUserId";
+
+      s3.config.skipPermissionChecks = false;
+      s3.onCheckPermissions = async () => false;
+      const result = await s3.handlePermissionsCheck(
+        {},
+        "download",
+        userId,
+        context
+      );
+
+      expect(result).to.be.false;
+    });
+  });
 });
