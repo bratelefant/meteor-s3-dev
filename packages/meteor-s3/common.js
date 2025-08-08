@@ -126,12 +126,14 @@ export class MeteorS3Client {
    * @param {string} fileId - The ID of the file to remove.
    * @throws {Meteor.Error} - If the file cannot be removed.
    */
-  async removeFile(fileId) {
+  async removeFile(fileId, context = {}) {
     check(fileId, String);
+    check(context, Object);
     this.log(`Removing file with ID: ${fileId}`);
     try {
       await Meteor.callAsync(`meteorS3.${this.config.name}.removeFile`, {
         fileId,
+        context,
       });
       this.log(`File removed successfully: ${fileId}`);
     } catch (error) {
