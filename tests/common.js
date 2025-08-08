@@ -61,7 +61,8 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       sinon.spy(MeteorS3Client, "uploadFileWithProgress");
 
       const fileId = await s3.uploadFile(file, {}, (progress) => {
-        console.log(`Upload progress: ${progress}%`);
+        // Simulate progress callback
+        expect(progress).to.be.a("number");
       });
 
       expect(fileId).to.equal("12345");
@@ -90,7 +91,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       try {
         await s3.uploadFile(file, {}, (progress) => {
-          console.log(`Upload progress: ${progress}%`);
+          expect(progress).to.be.a("number");
         });
       } catch (error) {
         expect(error.message).to.equal("Upload failed");
@@ -104,7 +105,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       try {
         await s3.uploadFile(null, {}, (progress) => {
-          console.log(`Upload progress: ${progress}%`);
+          expect(progress).to.be.a("number");
         });
       } catch (error) {
         expect(error.message).to.equal("Match error: Expected File");
@@ -214,7 +215,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
     });
   });
 
-  describe("removeFile", function(){
+  describe("removeFile", function () {
     it("should remove a file", async function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
       const fileId = "12345";
@@ -248,7 +249,9 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       try {
         await s3.removeFile(fileId);
       } catch (error) {
-        expect(error.message).to.equal("Failed to remove file: File not found [file-remove-failed]");
+        expect(error.message).to.equal(
+          "Failed to remove file: File not found [file-remove-failed]"
+        );
       } finally {
         Meteor.callAsync.restore();
       }
