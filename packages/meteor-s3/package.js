@@ -14,6 +14,7 @@ Npm.depends({
   "@aws-sdk/client-s3": "3.859.0",
   "@aws-sdk/s3-request-presigner": "3.859.0",
   axios: "1.11.0",
+  "body-parser": "2.2.0",
 });
 
 Package.onUse(function (api) {

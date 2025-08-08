@@ -170,6 +170,39 @@ describe("Test MeteorS3 class (Server)", function () {
     });
   });
 
+  describe("ensureCors", function () {
+    it("should set up CORS headers", async function () {
+      sinon.spy(s3.s3Client, "send");
+      await s3.ensureCors();
+      expect(s3.s3Client.send.calledOnce).to.be.true;
+    });
+  });
+
+  describe("ensureEndpoints", function () {
+    it("should set up REST API endpoints", async function () {
+      sinon.spy(WebApp.handlers, "post");
+      await s3.ensureEndpoints();
+
+      expect(WebApp.handlers.post.calledOnce).to.be.true;
+
+      // test request handling
+
+      const result = await fetch(
+        Meteor.absoluteUrl("/api/" + s3.config.name + "/confirm"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ key: "testkey" + Random.id() }),
+        }
+      );
+
+      // check response; file will not exist at this point
+      expect(result).to.have.property("status", 404);
+    });
+  });
+
   describe("getUploadUrl", function () {
     it("should return a valid upload URL for a file", async function () {
       const file = {
