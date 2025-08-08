@@ -20,9 +20,26 @@ const s3 = new MeteorS3({
   onCheckPermissions: async (_fileDoc, _action, _userId, _context) => {
     return true; // Allow all actions by default
   },
+  /**
+   * Demonstrate basic usage of onGetKey Hook for getting the keys for S3 uploads.
+   * You can also use this to upload users files to corresponding userId-named folders
+   * in S3 for example.
+   *
+   * @param {*} fileInfos
+   * @param {*} _userId
+   * @param {*} _context
+   * @returns
+   */
   onGetKey: (fileInfos, _userId, _context) => {
     // Custom key generation logic
-    return `${fileInfos.meta.path}/${Random.id()}-${fileInfos.filename}`;
+    const { filename, size, mimeType, meta } = fileInfos;
+    if (mimeType.includes("image")) {
+      return `images/${Random.id()}-${filename}`;
+    }
+    if (meta.path) {
+      return `${meta.path}/${Random.id()}-${filename}`;
+    }
+    return `${Random.id()}-${filename}`;
   },
 });
 
