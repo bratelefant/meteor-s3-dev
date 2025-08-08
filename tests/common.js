@@ -184,7 +184,14 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       const result = await s3.downloadFile(fileId);
 
-      expect(result).to.deep.equal("This is the content of testfile.txt");
+      if (Meteor.isServer) {
+        expect(result).to.deep.equal("This is the content of testfile.txt");
+      }
+      if (Meteor.isClient) {
+        expect(result).to.be.instanceOf(Blob);
+        const text = await result.text();
+        expect(text).to.equal("This is the content of testfile.txt");
+      }
       expect(downloadUrlStub.calledOnce).to.be.true;
       expect(downloadUrlStub.firstCall.args[0]).to.equal(fileId);
     });

@@ -100,6 +100,8 @@ export class MeteorS3Client {
 
   /**
    * Downloads a file from S3 as a blob.
+   * If called on the server, you get the contents, on the client, this returns a `Blob` object, so
+   * you need to call the `.text()` method if the file is a text file, for example
    * @param {string} fileId - The ID of the file to download.
    * @returns {Promise<Blob>} - The downloaded file as a Blob.
    * @throws {Meteor.Error} - If the download fails.
@@ -118,6 +120,7 @@ export class MeteorS3Client {
         `Failed to download file: ${res.statusText}`
       );
     }
+
     return await res.data;
   }
 
