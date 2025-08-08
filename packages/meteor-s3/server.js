@@ -206,6 +206,10 @@ export class MeteorS3 {
     }
   }
 
+  /**
+   * Ensures that the CORS configuration for the bucket is set.
+   * @returns {Promise<void>}
+   */
   async ensureCors() {
     // Ensure CORS configuration for the bucket
     const corsConfig = {

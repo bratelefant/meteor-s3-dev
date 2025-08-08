@@ -8,8 +8,9 @@ const s3 = new MeteorS3({
     process.env.AWS_ACCESS_KEY_ID || Meteor.settings?.aws?.accessKeyId,
   secretAccessKey:
     process.env.AWS_SECRET_ACCESS_KEY || Meteor.settings?.aws?.secretAccessKey,
-  endpoint: "http://localhost:4566", // Uncomment this line to use a local MinIO instance
   name: "publicFiles",
+
+  endpoint: "http://localhost:4566", // Optional, this defaults to the AWS S3 endpoint
   region: "eu-central-1", // Optional, this defaults to 'eu-central-1'
   verbose: true, // Optional, this defaults to false
   skipPermissionChecks: false, // Optional, this defaults to false

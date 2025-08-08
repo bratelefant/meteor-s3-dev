@@ -5,7 +5,14 @@ import { resetDb } from "./tools";
 import { Random } from "meteor/random";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 
-describe("Test Meteor S3 initialisation", function () {
+describe("Test MeteorS3 initialisation (Server)", function () {
+  if (!Meteor.isServer) {
+    it("should not run on client", function () {
+      expect(true).to.be.true;
+    });
+    return;
+  }
+
   describe("constructor", function () {
     it("should throw an error if config is not provided", function () {
       expect(() => new MeteorS3()).to.throw();
@@ -71,7 +78,14 @@ describe("Test Meteor S3 initialisation", function () {
   });
 });
 
-describe("Test MeteorS3 class", function () {
+describe("Test MeteorS3 class (Server)", function () {
+  if (!Meteor.isServer) {
+    it("should not run on client", function () {
+      expect(true).to.be.true;
+    });
+    return;
+  }
+
   let s3;
 
   beforeEach(async function () {

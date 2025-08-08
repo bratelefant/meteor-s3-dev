@@ -1,5 +1,13 @@
 import assert from "assert";
 
+// Setup PUT endpoint for testing
+
+WebApp.handlers.put("/upload", (req, res) => {
+  // Simulate a successful upload response
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ message: "File uploaded successfully" }));
+});
+
 describe("check test environment", function () {
   it("package.json has correct name", async function () {
     const { name } = await import("../package.json");
