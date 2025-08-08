@@ -1,5 +1,20 @@
 import assert from "assert";
 
+// Setup PUT endpoint for testing
+if (Meteor.isServer) {
+  WebApp.handlers.get("/download/testfile.txt", (req, res) => {
+    // Simulate a successful download response
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("This is the content of testfile.txt");
+  });
+
+  WebApp.handlers.put("/upload", (req, res) => {
+    // Simulate a successful upload response
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ message: "File uploaded successfully" }));
+  });
+}
+
 describe("check test environment", function () {
   it("package.json has correct name", async function () {
     const { name } = await import("../package.json");

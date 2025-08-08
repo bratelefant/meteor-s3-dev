@@ -20,7 +20,7 @@ export const configSchema = new SimpleSchema({
     type: String,
     label: "AWS Region",
     optional: true,
-    defaultValue: "eu-central-1",
+    autoValue: () => "eu-central-1", // Default region
   },
   verbose: {
     type: Boolean,
@@ -46,9 +46,35 @@ export const configSchema = new SimpleSchema({
     optional: true,
     defaultValue: 60, // Default to 60 seconds
   },
+  /**
+   * Check permissions prior to upload, download or file removal.
+   * If action is "upload", fileDoc will only be { filename, size, mimeType, meta }, since the checks
+   * are performed before the file is inserted in the files collection.
+   *
+   * Signature is (fileDoc, action, userId, context) => boolean.
+   *
+   * Permission for actions "upload", "download" and "remove" is only granted, if this returns true and throws no errors.
+   * By default, all checks will not pass.
+   */
   onCheckPermissions: {
     type: Function,
-    label: "Custom permission check function",
+    label: "Custom permission check function.",
+    optional: true,
+  },
+  /**
+   * Sets the key for the file in aws.
+   *
+   * Signature is ({ filename, size, mimeType, meta }, userId, context) => string.
+   *
+   * However, all uploads will have the prefix "uploads/" in any case.
+   * By default, the key is generated using a unique identifier and the filename:
+   * ```js
+   * ${Random.id()}-${fileInfos.filename}
+   * ```.
+   */
+  onGetKey: {
+    type: Function,
+    label: "Custom key generation function.",
     optional: true,
   },
   endpoint: {

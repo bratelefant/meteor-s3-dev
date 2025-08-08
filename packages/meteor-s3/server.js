@@ -26,8 +26,11 @@ import { MeteorS3FilesSchema } from "./schemas/files";
 export class MeteorS3 {
   constructor(config) {
     // check if the config is valid and set it
-    configSchema.validate(config);
-    this.config = config;
+
+    const cleanedConfig = configSchema.clean(config);
+    configSchema.validate(cleanedConfig);
+
+    this.config = cleanedConfig;
 
     // State and meta infos about Files of this instance are stored here
     this.files =
@@ -69,25 +72,20 @@ export class MeteorS3 {
         );
         return false; // Deny all actions by default
       });
-  }
 
-  /**
-   * internal helper function to generate a valid S3 bucket name
-   * @param {String} instanceName - The name of the instance to generate a bucket name for.
-   * @returns {String} - A valid S3 bucket name based on the instance name.
-   */
-  static generateValidBucketName(instanceName) {
-    const slugified = instanceName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+/, "")
-      .replace(/-+$/, "")
-      .replace(/--+/g, "-");
+    /**
+     * Custom key generation function. This enables users to define their own key generation logic and
+     * for example to organize all uploads in one directory per user.
+     *
+     * However, all uploads will have the prefix "uploads/"
+     */
+    this.onGetKey =
+      this.config.onGetKey ||
+      ((fileInfos, _userId, _context) => {
+        // Default implementation generates a unique key based on the file ID and user ID
 
-    const randomSuffix = Random.id(6).toLowerCase();
-    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
-
-    return baseName.substring(0, 63);
+        return `${Random.id()}-${fileInfos.filename}`;
+      });
   }
 
   /**
@@ -125,11 +123,30 @@ export class MeteorS3 {
     await this.ensureBucket();
 
     // Minio does not support CORS, and we dont need it when working locally.
-    if (!this.config.endpoint?.includes("localhost")) await this.ensureCors();
+    await this.ensureCors();
 
     // Ensure that the methods for file uploads and downloads are available
     await this.ensureMethods();
     this.log(`S3 client ${this.config.name} initialized successfully.`);
+  }
+
+  /**
+   * internal helper function to generate a valid S3 bucket name
+   * @param {String} instanceName - The name of the instance to generate a bucket name for.
+   * @returns {String} - A valid S3 bucket name based on the instance name.
+   */
+  static generateValidBucketName(instanceName) {
+    const slugified = instanceName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
+      .replace(/--+/g, "-");
+
+    const randomSuffix = Random.id(6).toLowerCase();
+    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
+
+    return baseName.substring(0, 63);
   }
 
   /**
@@ -203,6 +220,10 @@ export class MeteorS3 {
     }
   }
 
+  /**
+   * Ensures that the CORS configuration for the bucket is set.
+   * @returns {Promise<void>}
+   */
   async ensureCors() {
     // Ensure CORS configuration for the bucket
     const corsConfig = {
@@ -347,9 +368,16 @@ export class MeteorS3 {
     check(userId, Match.Maybe(String));
     check(context, Object);
 
+    const fileInfos = {
+      filename: name,
+      size,
+      mimeType: type,
+      meta,
+    };
+
     // Check permissions before generating the URL
     const hasPermission = await this.handlePermissionsCheck(
-      { name, size, type, meta },
+      fileInfos,
       "upload",
       userId,
       context
@@ -366,7 +394,7 @@ export class MeteorS3 {
     // The key is a unique identifier for the file in S3
     const params = {
       Bucket: this.bucketName,
-      Key: `uploads/${Random.id()}-${name}`,
+      Key: "uploads/" + this.onGetKey(fileInfos, userId, context),
       ContentType: type,
     };
 
@@ -378,15 +406,17 @@ export class MeteorS3 {
       key: params.Key,
       bucket: this.bucketName,
       status: Meteor.isDevelopment ? "uploaded" : "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
-      ownerId: context?.userId, // Set this if you have user management
+      ownerId: userId, // Set this if you have user management
       createdAt: new Date(),
       meta,
     };
 
     const fileId = await this.files.insertAsync(fileDoc);
 
+    const fileDocDb = await this.files.findOneAsync(fileId);
+
     // call hook before upload
-    await this.onBeforeUpload(fileDoc);
+    await this.onBeforeUpload(fileDocDb);
 
     const url = await getSignedUrl(
       this.s3Client,
@@ -459,6 +489,15 @@ export class MeteorS3 {
     });
   }
 
+  /**
+   * Removes a file from S3 and the database.
+   * @param {Object} param0 - The parameters for removing the file.
+   * @param {String} param0.fileId - The ID of the file to be removed.
+   * @param {Object} [param0.context={}] - Additional context for permission checks (optional).
+   * @param {String} [param0.userId] - The ID of the user requesting the removal (optional).
+   * @throws {Meteor.Error} If the file does not exist or if the user does not have permission to remove the file.
+   * @returns {Promise<void>}
+   */
   async removeFile({ fileId, context = {}, userId }) {
     // Validate the file document
     check(fileId, String);

@@ -2,18 +2,6 @@ import axios from "axios";
 import { clientConfigSchema } from "./schemas/config";
 import { check, Match } from "meteor/check";
 
-async function uploadFileWithProgress(url, file, onProgress) {
-  await axios.put(url, file, {
-    headers: { "Content-Type": file.type },
-    onUploadProgress: (event) => {
-      if (onProgress && event.total) {
-        const percent = Math.round((event.loaded * 100) / event.total);
-        onProgress(percent);
-      }
-    },
-  });
-}
-
 /**
  * Meteor S3 Client
  * This class provides methods to interact with S3 for file uploads and downloads.
@@ -35,7 +23,29 @@ export class MeteorS3Client {
   }
 
   /**
+   * Internal function to upload a file to a pre-signed URL with progress tracking.
+   * @param {string} url
+   * @param {File} file
+   * @param {Function} onProgress
+   */
+  static async uploadFileWithProgress(url, file, onProgress) {
+    await axios.put(url, file, {
+      headers: { "Content-Type": file.type },
+      onUploadProgress: (event) => {
+        if (onProgress && event.total) {
+          const percent = Math.round((event.loaded * 100) / event.total);
+          onProgress(percent);
+        }
+      },
+    });
+  }
+  ƒ;
+
+  /**
    * Uploads a file to S3.
+   *
+   * Internally, this method calls `getUploadUrl` to obtain a pre-signed URL for uploading the file.
+   * After the upload is complete, it calls the server method to handle the post file upload event.
    * @param {File} file - The file to upload.
    * @param {Object} [meta={}] - Optional metadata to associate with the file.
    * @param {Function} [onProgress] - Optional callback to track upload progress.
@@ -59,7 +69,7 @@ export class MeteorS3Client {
       `Start uploading file to S3: ${file.name} (${file.size} bytes) using URL: ${url}`
     );
 
-    await uploadFileWithProgress(url, file, onProgress);
+    await MeteorS3Client.uploadFileWithProgress(url, file, onProgress);
 
     this.log(`File uploaded successfully: ${file.name} with ID: ${fileId}`);
     // After the upload, we need to call the server method to handle the file upload event
@@ -90,6 +100,8 @@ export class MeteorS3Client {
 
   /**
    * Downloads a file from S3 as a blob.
+   * If called on the server, you get the contents, on the client, this returns a `Blob` object, so
+   * you need to call the `.text()` method if the file is a text file, for example
    * @param {string} fileId - The ID of the file to download.
    * @returns {Promise<Blob>} - The downloaded file as a Blob.
    * @throws {Meteor.Error} - If the download fails.
@@ -108,6 +120,7 @@ export class MeteorS3Client {
         `Failed to download file: ${res.statusText}`
       );
     }
+
     return await res.data;
   }
 
@@ -116,12 +129,14 @@ export class MeteorS3Client {
    * @param {string} fileId - The ID of the file to remove.
    * @throws {Meteor.Error} - If the file cannot be removed.
    */
-  async removeFile(fileId) {
+  async removeFile(fileId, context = {}) {
     check(fileId, String);
+    check(context, Object);
     this.log(`Removing file with ID: ${fileId}`);
     try {
       await Meteor.callAsync(`meteorS3.${this.config.name}.removeFile`, {
         fileId,
+        context,
       });
       this.log(`File removed successfully: ${fileId}`);
     } catch (error) {
