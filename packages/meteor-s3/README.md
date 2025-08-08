@@ -110,6 +110,7 @@ The `context` object can contain any data you need for your permission checks, s
 Example of a custom permission check, which allows only the owner of a file to download it:
 
 ```js
+// if action is "upload", the fileDoc will only be { filename, size, mimeType, meta } that are sent from the client
 s3.onCheckPermissions = (fileDoc, action, userId, context) => {
   if (action === "download") {
     // Allow download only if the userId in context matches the file's owner;

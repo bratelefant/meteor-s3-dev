@@ -252,6 +252,32 @@ describe("Test MeteorS3 class (Server)", function () {
       expect(result).to.have.property("fileId");
     });
 
+    it("should call onGetKey hook", async function () {
+      const uploadParams = {
+        name: "get-key-test.txt",
+        size: 512,
+        type: "text/plain",
+        meta: {},
+        userId: "testUser456",
+        context: {},
+      };
+
+      const onGetKeyStub = sinon.stub();
+      s3.onGetKey = onGetKeyStub;
+
+      const result = await s3.getUploadUrl(uploadParams);
+
+      expect(onGetKeyStub.calledOnce).to.be.true;
+      expect(onGetKeyStub.firstCall.args[0]).to.deep.include({
+        filename: "get-key-test.txt",
+        size: 512,
+        mimeType: "text/plain",
+        meta: {},
+      });
+      expect(result).to.have.property("url");
+      expect(result).to.have.property("fileId");
+    });
+
     it("should handle permission denial", async function () {
       // Disable permission skip for this test
       s3.config.skipPermissionChecks = false;

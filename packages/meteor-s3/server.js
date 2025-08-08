@@ -72,6 +72,20 @@ export class MeteorS3 {
         );
         return false; // Deny all actions by default
       });
+
+    /**
+     * Custom key generation function. This enables users to define their own key generation logic and
+     * for example to organize all uploads in one directory per user.
+     *
+     * However, all uploads will have the prefix "uploads/"
+     */
+    this.onGetKey =
+      this.config.onGetKey ||
+      ((fileInfos, _userId, _context) => {
+        // Default implementation generates a unique key based on the file ID and user ID
+
+        return `${Random.id()}-${fileInfos.filename}`;
+      });
   }
 
   /**
@@ -354,9 +368,16 @@ export class MeteorS3 {
     check(userId, Match.Maybe(String));
     check(context, Object);
 
+    const fileInfos = {
+      filename: name,
+      size,
+      mimeType: type,
+      meta,
+    };
+
     // Check permissions before generating the URL
     const hasPermission = await this.handlePermissionsCheck(
-      { name, size, type, meta },
+      fileInfos,
       "upload",
       userId,
       context
@@ -373,7 +394,7 @@ export class MeteorS3 {
     // The key is a unique identifier for the file in S3
     const params = {
       Bucket: this.bucketName,
-      Key: `uploads/${Random.id()}-${name}`,
+      Key: "uploads/" + this.onGetKey(fileInfos, userId, context),
       ContentType: type,
     };
 

@@ -2,6 +2,7 @@ import { Meteor } from "meteor/meteor";
 import { onPageLoad } from "meteor/server-render";
 import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
 import { MeteorS3Client } from "meteor/bratelefant:meteor-s3/common";
+import { Random } from "meteor/random";
 
 const s3 = new MeteorS3({
   accessKeyId:
@@ -19,6 +20,10 @@ const s3 = new MeteorS3({
   onCheckPermissions: async (_fileDoc, _action, _userId, _context) => {
     return true; // Allow all actions by default
   },
+  onGetKey: (fileInfos, _userId, _context) => {
+    // Custom key generation logic
+    return `${fileInfos.meta.path}/${Random.id()}-${fileInfos.filename}`;
+  },
 });
 
 Meteor.startup(async () => {
@@ -34,10 +39,14 @@ Meteor.startup(async () => {
     const testFile = new File(["Hello World"], "test.txt", {
       type: "text/plain",
     });
-    fileId = await s3Client.uploadFile(testFile, { test: true }, (progress) => {
-      // eslint-disable-next-line no-console
-      console.log(`Upload progress: ${progress}%`);
-    });
+    fileId = await s3Client.uploadFile(
+      testFile,
+      { path: "testpath", test: true },
+      (progress) => {
+        // eslint-disable-next-line no-console
+        console.log(`Upload progress: ${progress}%`);
+      }
+    );
     // eslint-disable-next-line no-console
     console.log(`Test file uploaded successfully with ID: ${fileId}`);
   } catch (error) {
