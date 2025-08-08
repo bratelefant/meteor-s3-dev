@@ -32,7 +32,7 @@ const s3 = new MeteorS3({
    */
   onGetKey: (fileInfos, _userId, _context) => {
     // Custom key generation logic
-    const { filename, size, mimeType, meta } = fileInfos;
+    const { filename, mimeType, meta } = fileInfos; // also contains "size"
     if (mimeType.includes("image")) {
       return `images/${Random.id()}-${filename}`;
     }
