@@ -206,11 +206,14 @@ export class MeteorS3 {
     // In LocalStack (Docker), 'localhost' would resolve inside the container, not your host app.
     // Prefer an explicit config override, else use host.docker.internal for local endpoints.
     const defaultBase = Meteor.absoluteUrl().replace(/\/$/, "");
-    const isLocalEndpoint = !!(this.config.endpoint && this.config.endpoint.includes("localhost"));
-    const webhookBase =
-      this.config.webhookBaseUrl
-        ? this.config.webhookBaseUrl.replace(/\/$/, "")
-        : (isLocalEndpoint ? `http://host.docker.internal:${process.env.PORT || 3000}` : defaultBase);
+    const isLocalEndpoint = !!(
+      this.config.endpoint && this.config.endpoint.includes("localhost")
+    );
+    const webhookBase = this.config.webhookBaseUrl
+      ? this.config.webhookBaseUrl.replace(/\/$/, "")
+      : isLocalEndpoint
+        ? `http://host.docker.internal:${process.env.PORT || 3000}`
+        : defaultBase;
 
     const webhookUrl = `${webhookBase}/api/${encodeURIComponent(this.config.name)}/confirm`;
 
@@ -247,6 +250,16 @@ export class MeteorS3 {
       }
     }
 
+    // List functions only in verbose/debug scenarios
+
+    const result = await this.lambdaClient.send(
+      new ListFunctionsCommand({ MaxItems: 5 })
+    );
+    this.log(
+      "(Debug) First functions:",
+      (result.Functions || []).map((f) => f.FunctionName)
+    );
+
     if (!existingFunction) {
       // Create new function
       const params = {
@@ -276,7 +289,10 @@ export class MeteorS3 {
       const updatesNeeded = [];
 
       // Code update if hash differs
-      if (currentCfg.CodeSha256 && currentCfg.CodeSha256 !== localCodeSha256) {
+      if (
+        true ||
+        (currentCfg.CodeSha256 && currentCfg.CodeSha256 !== localCodeSha256)
+      ) {
         updatesNeeded.push("code");
         this.log(
           `Code update required for ${manifest.FunctionName} (remote hash ${currentCfg.CodeSha256} != local ${localCodeSha256})`
@@ -291,7 +307,12 @@ export class MeteorS3 {
       }
 
       // Configuration differences
-      const desiredEnv = { WEBHOOK_URL: manifest.WEBHOOK_URL };
+      const desiredEnv = {
+        WEBHOOK_URL: manifest.Environment.Variables.WEBHOOK_URL,
+        BUCKET: this.bucketName,
+        INSTANCE: this.config.name,
+      };
+
       const currentEnv = currentCfg.Environment?.Variables || {};
       const configDiff =
         currentCfg.MemorySize !== (manifest.MemorySize || 128) ||
@@ -327,17 +348,6 @@ export class MeteorS3 {
           )}`
         );
       }
-    }
-
-    // List functions only in verbose/debug scenarios
-    if (process.env.METEOR_S3_DEBUG_LAMBDA === "1") {
-      const result = await this.lambdaClient.send(
-        new ListFunctionsCommand({ MaxItems: 5 })
-      );
-      this.log(
-        "(Debug) First functions:",
-        (result.Functions || []).map((f) => f.FunctionName)
-      );
     }
   }
 
@@ -753,7 +763,7 @@ export class MeteorS3 {
         if (!file) {
           return res.status(404).json({ error: "File not found" });
         }
-        
+
         this.handleFileUploadEvent(file._id)
           .then(() => {
             // Simulate a successful confirmation
