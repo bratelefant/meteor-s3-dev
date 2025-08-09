@@ -22,7 +22,11 @@ import {
   LambdaClient,
   CreateFunctionCommand,
   ListFunctionsCommand,
+  GetFunctionCommand,
+  UpdateFunctionCodeCommand,
+  UpdateFunctionConfigurationCommand,
 } from "@aws-sdk/client-lambda";
+import crypto from "crypto";
 
 /**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
@@ -168,9 +172,8 @@ export class MeteorS3 {
 
   /**
    * Deploys a Lambda function.
-   * @param {*} dirName Name of the directory containing the Lambda function code, relative to the project root/lambda/functions
    */
-  async deployLambdaFunction(dirName) {
+  async deployLambdaFunction(_key) {
     const manifestTemplate = await Assets.getTextAsync(
       "private/lambda/uploadHandler/manifest.tpl.json"
     );
@@ -196,32 +199,112 @@ export class MeteorS3 {
       "private/lambda/uploadHandler/src.zip"
     );
 
-    // Deploy the Lambda function
-    const params = {
-      FunctionName: manifest.FunctionName,
-      Code: {
-        ZipFile: Buffer.from(functionCode), // create a Buffer from the Uint8Array
-      },
-      Role: manifest.Role || "arn:aws:iam::123456789012:role/lambda-role",
-      Handler: manifest.Handler || "index.handler",
-      Runtime: manifest.Runtime || "nodejs20.x",
-      MemorySize: manifest.MemorySize || 128,
-      Timeout: manifest.Timeout || 10,
-      Environment: {
-        Variables: {
-          WEBHOOK_URL: manifest.WEBHOOK_URL,
+    // Helper to hash current code zip
+    const localCodeSha256 = crypto
+      .createHash("sha256")
+      .update(Buffer.from(functionCode))
+      .digest("base64");
+
+    let existingFunction = null;
+    try {
+      existingFunction = await this.lambdaClient.send(
+        new GetFunctionCommand({ FunctionName: manifest.FunctionName })
+      );
+    } catch (e) {
+      if (e?.name !== "ResourceNotFoundException") {
+        this.log("Unexpected error checking existing Lambda", e);
+        throw e;
+      }
+    }
+
+    if (!existingFunction) {
+      // Create new function
+      const params = {
+        FunctionName: manifest.FunctionName,
+        Code: { ZipFile: Buffer.from(functionCode) },
+        Role: manifest.Role || "arn:aws:iam::123456789012:role/lambda-role",
+        Handler: manifest.Handler || "index.handler",
+        Runtime: manifest.Runtime || "nodejs20.x",
+        MemorySize: manifest.MemorySize || 128,
+        Timeout: manifest.Timeout || 10,
+        Environment: {
+          Variables: { WEBHOOK_URL: manifest.WEBHOOK_URL },
         },
-      },
-    };
+      };
+      this.log(
+        `Creating Lambda function ${manifest.FunctionName} (new deployment)`
+      );
+      await this.lambdaClient.send(new CreateFunctionCommand(params));
+      this.log(`Lambda function ${manifest.FunctionName} created.`);
+    } else {
+      // Compare & update
+      const currentCfg = existingFunction.Configuration || {};
+      const updatesNeeded = [];
 
-    this.log("Sending params", params);
+      // Code update if hash differs
+      if (currentCfg.CodeSha256 && currentCfg.CodeSha256 !== localCodeSha256) {
+        updatesNeeded.push("code");
+        this.log(
+          `Code update required for ${manifest.FunctionName} (remote hash ${currentCfg.CodeSha256} != local ${localCodeSha256})`
+        );
+        await this.lambdaClient.send(
+          new UpdateFunctionCodeCommand({
+            FunctionName: manifest.FunctionName,
+            ZipFile: Buffer.from(functionCode),
+            Publish: false,
+          })
+        );
+      }
 
-    const response = await this.lambdaClient.send(
-      new CreateFunctionCommand(params)
-    );
+      // Configuration differences
+      const desiredEnv = { WEBHOOK_URL: manifest.WEBHOOK_URL };
+      const currentEnv = currentCfg.Environment?.Variables || {};
+      const configDiff =
+        currentCfg.MemorySize !== (manifest.MemorySize || 128) ||
+        currentCfg.Timeout !== (manifest.Timeout || 10) ||
+        currentCfg.Handler !== (manifest.Handler || "index.handler") ||
+        currentCfg.Runtime !== (manifest.Runtime || "nodejs20.x") ||
+        JSON.stringify(currentEnv) !== JSON.stringify(desiredEnv) ||
+        (manifest.Role && currentCfg.Role !== manifest.Role); // Role change allowed
 
-    const result = await this.lambdaClient.send(new ListFunctionsCommand({}));
-    console.log(result);
+      if (configDiff) {
+        updatesNeeded.push("configuration");
+        await this.lambdaClient.send(
+          new UpdateFunctionConfigurationCommand({
+            FunctionName: manifest.FunctionName,
+            Handler: manifest.Handler || "index.handler",
+            Runtime: manifest.Runtime || "nodejs20.x",
+            MemorySize: manifest.MemorySize || 128,
+            Timeout: manifest.Timeout || 10,
+            Role: manifest.Role || currentCfg.Role,
+            Environment: { Variables: desiredEnv },
+          })
+        );
+      }
+
+      if (updatesNeeded.length === 0) {
+        this.log(
+          `Lambda function ${manifest.FunctionName} is up-to-date (no changes).`
+        );
+      } else {
+        this.log(
+          `Updated Lambda function ${manifest.FunctionName}: ${updatesNeeded.join(
+            ", "
+          )}`
+        );
+      }
+    }
+
+    // List functions only in verbose/debug scenarios
+    if (process.env.METEOR_S3_DEBUG_LAMBDA === "1") {
+      const result = await this.lambdaClient.send(
+        new ListFunctionsCommand({ MaxItems: 5 })
+      );
+      this.log(
+        "(Debug) First functions:",
+        (result.Functions || []).map((f) => f.FunctionName)
+      );
+    }
   }
 
   async ensureLambdaFunctions() {
