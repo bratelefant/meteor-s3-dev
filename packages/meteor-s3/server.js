@@ -42,7 +42,49 @@ import {
 } from "@aws-sdk/client-s3";
 // Lambda: Permission für S3->Lambda
 import { AddPermissionCommand } from "@aws-sdk/client-lambda";
+
 import crypto from "crypto";
+
+// --- Lambda deploy helpers -------------------------------------------------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
+  const { timeoutMs = 60000, pollMs = 800 } = opts;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const cfg = await lambdaClient.send(
+        new GetFunctionCommand({ FunctionName: functionName })
+      );
+      const status = cfg?.Configuration?.LastUpdateStatus;
+      if (!status || status === "Successful") return;
+      if (status === "Failed") throw new Error("Lambda LastUpdateStatus=Failed");
+    } catch (e) {
+      // LocalStack can briefly 404 during update; tolerate and retry
+    }
+    await sleep(pollMs);
+  }
+  throw new Error(`Timeout waiting for Lambda ${functionName} to become ready`);
+}
+
+async function withLambdaUpdateRetry(lambdaClient, fn, functionName, maxRetries = 6) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e?.name === "ResourceConflictException" || e?.__type === "ResourceConflictException") {
+        // another update in progress; wait and retry
+        await waitForLambdaReady(lambdaClient, functionName, { timeoutMs: 30000, pollMs: 700 });
+        continue;
+      }
+      throw e;
+    }
+  }
+  // one last wait to surface a better error if still stuck
+  await waitForLambdaReady(lambdaClient, functionName, { timeoutMs: 30000, pollMs: 700 });
+  return await fn();
+}
+// ---------------------------------------------------------------------------
 
 /**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
@@ -272,7 +314,7 @@ export class MeteorS3 {
         Timeout: manifest.Timeout || 10,
         Environment: {
           Variables: {
-            WEBHOOK_URL: manifest.WEBHOOK_URL,
+            WEBHOOK_URL: webhookUrl,
             BUCKET: this.bucketName,
             INSTANCE: this.config.name,
           },
@@ -282,6 +324,7 @@ export class MeteorS3 {
         `Creating Lambda function ${manifest.FunctionName} (new deployment)`
       );
       await this.lambdaClient.send(new CreateFunctionCommand(params));
+      await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
       this.log(`Lambda function ${manifest.FunctionName} created.`);
     } else {
       // Compare & update
@@ -289,26 +332,31 @@ export class MeteorS3 {
       const updatesNeeded = [];
 
       // Code update if hash differs
-      if (
-        true ||
-        (currentCfg.CodeSha256 && currentCfg.CodeSha256 !== localCodeSha256)
-      ) {
+      if (currentCfg.CodeSha256 !== localCodeSha256) {
         updatesNeeded.push("code");
         this.log(
           `Code update required for ${manifest.FunctionName} (remote hash ${currentCfg.CodeSha256} != local ${localCodeSha256})`
         );
-        await this.lambdaClient.send(
-          new UpdateFunctionCodeCommand({
-            FunctionName: manifest.FunctionName,
-            ZipFile: Buffer.from(functionCode),
-            Publish: false,
-          })
+        await withLambdaUpdateRetry(
+          this.lambdaClient,
+          () =>
+            this.lambdaClient.send(
+              new UpdateFunctionCodeCommand({
+                FunctionName: manifest.FunctionName,
+                ZipFile: Buffer.from(functionCode),
+                Publish: false,
+              })
+            ),
+          manifest.FunctionName
         );
+        await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
+      } else {
+        this.log(`Code is up-to-date for ${manifest.FunctionName}`);
       }
 
       // Configuration differences
       const desiredEnv = {
-        WEBHOOK_URL: manifest.Environment.Variables.WEBHOOK_URL,
+        WEBHOOK_URL: webhookUrl,
         BUCKET: this.bucketName,
         INSTANCE: this.config.name,
       };
@@ -324,17 +372,23 @@ export class MeteorS3 {
 
       if (configDiff) {
         updatesNeeded.push("configuration");
-        await this.lambdaClient.send(
-          new UpdateFunctionConfigurationCommand({
-            FunctionName: manifest.FunctionName,
-            Handler: manifest.Handler || "index.handler",
-            Runtime: manifest.Runtime || "nodejs20.x",
-            MemorySize: manifest.MemorySize || 128,
-            Timeout: manifest.Timeout || 10,
-            Role: manifest.Role || currentCfg.Role,
-            Environment: { Variables: desiredEnv },
-          })
+        await withLambdaUpdateRetry(
+          this.lambdaClient,
+          () =>
+            this.lambdaClient.send(
+              new UpdateFunctionConfigurationCommand({
+                FunctionName: manifest.FunctionName,
+                Handler: manifest.Handler || "index.handler",
+                Runtime: manifest.Runtime || "nodejs20.x",
+                MemorySize: manifest.MemorySize || 128,
+                Timeout: manifest.Timeout || 10,
+                Role: manifest.Role || currentCfg.Role,
+                Environment: { Variables: desiredEnv },
+              })
+            ),
+          manifest.FunctionName
         );
+        await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
       }
 
       if (updatesNeeded.length === 0) {
@@ -536,6 +590,9 @@ export class MeteorS3 {
         secretAccessKey: this.config.secretAccessKey,
       },
     });
+
+    // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
+    try { await waitForLambdaReady(this.lambdaClient, `meteorS3-${this.config.name}-uploadHandler`, { timeoutMs: 15000, pollMs: 700 }); } catch (_) {}
 
     try {
       await this.deployLambdaFunction("uploadHandler");
