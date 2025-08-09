@@ -73,11 +73,13 @@ export class MeteorS3Client {
 
     this.log(`File uploaded successfully: ${file.name} with ID: ${fileId}`);
     // This is now done by the lambda function
+    /*
     false && await Meteor.callAsync(
       `meteorS3.${this.config.name}.handleFileUploadEvent`,
       fileId
     );
     this.log(`File upload event handled for ID: ${fileId}`);
+    */
     return fileId;
   }
 

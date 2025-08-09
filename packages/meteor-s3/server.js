@@ -32,7 +32,6 @@ import {
   CreateRoleCommand,
   UpdateAssumeRolePolicyCommand,
   AttachRolePolicyCommand,
-  ListAttachedRolePoliciesCommand,
   PutRolePolicyCommand,
   GetRolePolicyCommand,
 } from "@aws-sdk/client-iam";
@@ -58,7 +57,8 @@ async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
       );
       const status = cfg?.Configuration?.LastUpdateStatus;
       if (!status || status === "Successful") return;
-      if (status === "Failed") throw new Error("Lambda LastUpdateStatus=Failed");
+      if (status === "Failed")
+        throw new Error("Lambda LastUpdateStatus=Failed");
     } catch (e) {
       // LocalStack can briefly 404 during update; tolerate and retry
     }
@@ -67,21 +67,35 @@ async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
   throw new Error(`Timeout waiting for Lambda ${functionName} to become ready`);
 }
 
-async function withLambdaUpdateRetry(lambdaClient, fn, functionName, maxRetries = 6) {
+async function withLambdaUpdateRetry(
+  lambdaClient,
+  fn,
+  functionName,
+  maxRetries = 6
+) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (e) {
-      if (e?.name === "ResourceConflictException" || e?.__type === "ResourceConflictException") {
+      if (
+        e?.name === "ResourceConflictException" ||
+        e?.__type === "ResourceConflictException"
+      ) {
         // another update in progress; wait and retry
-        await waitForLambdaReady(lambdaClient, functionName, { timeoutMs: 30000, pollMs: 700 });
+        await waitForLambdaReady(lambdaClient, functionName, {
+          timeoutMs: 30000,
+          pollMs: 700,
+        });
         continue;
       }
       throw e;
     }
   }
   // one last wait to surface a better error if still stuck
-  await waitForLambdaReady(lambdaClient, functionName, { timeoutMs: 30000, pollMs: 700 });
+  await waitForLambdaReady(lambdaClient, functionName, {
+    timeoutMs: 30000,
+    pollMs: 700,
+  });
   return await fn();
 }
 // ---------------------------------------------------------------------------
@@ -592,7 +606,15 @@ export class MeteorS3 {
     });
 
     // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
-    try { await waitForLambdaReady(this.lambdaClient, `meteorS3-${this.config.name}-uploadHandler`, { timeoutMs: 15000, pollMs: 700 }); } catch (_) {}
+    try {
+      await waitForLambdaReady(
+        this.lambdaClient,
+        `meteorS3-${this.config.name}-uploadHandler`,
+        { timeoutMs: 15000, pollMs: 700 }
+      );
+    } catch (_) {
+      this.log(`Lambda function not ready: ${_}`);
+    }
 
     try {
       await this.deployLambdaFunction("uploadHandler");
