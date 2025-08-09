@@ -1,8 +1,9 @@
 {
-  "FunctionName": "meteorS3-${INSTANCE}-confirmUpload",
+  "FunctionName": "meteorS3-${INSTANCE}-uploadHandler",
+  "Role": "${ROLE_ARN}",
   "Runtime": "nodejs20.x",
   "Handler": "index.handler",
-  "Description": "Confirm upload for instance ${INSTANCE}",
+  "Description": "Upload handler for instance ${INSTANCE}",
   "Timeout": 10,
   "MemorySize": 128,
   "Environment": {

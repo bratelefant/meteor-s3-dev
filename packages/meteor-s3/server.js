@@ -26,6 +26,22 @@ import {
   UpdateFunctionCodeCommand,
   UpdateFunctionConfigurationCommand,
 } from "@aws-sdk/client-lambda";
+import {
+  IAMClient,
+  GetRoleCommand,
+  CreateRoleCommand,
+  UpdateAssumeRolePolicyCommand,
+  AttachRolePolicyCommand,
+  ListAttachedRolePoliciesCommand,
+  PutRolePolicyCommand,
+  GetRolePolicyCommand,
+} from "@aws-sdk/client-iam";
+import {
+  GetBucketNotificationConfigurationCommand,
+  PutBucketNotificationConfigurationCommand,
+} from "@aws-sdk/client-s3";
+// Lambda: Permission für S3->Lambda
+import { AddPermissionCommand } from "@aws-sdk/client-lambda";
 import crypto from "crypto";
 
 /**
@@ -145,8 +161,16 @@ export class MeteorS3 {
     // Ensure that the REST API endpoints are available
     await this.ensureEndpoints();
 
-    // Ensure that the Lambda functions for this instance exist
+    // 1) Execution Role sicherstellen
+    this.lambdaRoleArn = await this.ensureRoles();
+
+    // 2) Lambda deployen/aktualisieren
     await this.ensureLambdaFunctions();
+
+    // 3) S3 -> Lambda Trigger für uploads/ sicherstellen (in echter AWS-Umgebung)
+    await this.ensureS3UploadTrigger(
+      `meteorS3-${this.config.name}-uploadHandler` // FunctionName (siehe Manifest-Template unten)
+    );
 
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
@@ -178,19 +202,25 @@ export class MeteorS3 {
       "private/lambda/uploadHandler/manifest.tpl.json"
     );
 
+    // Determine a webhook base URL that is reachable from the Lambda runtime.
+    // In LocalStack (Docker), 'localhost' would resolve inside the container, not your host app.
+    // Prefer an explicit config override, else use host.docker.internal for local endpoints.
+    const defaultBase = Meteor.absoluteUrl().replace(/\/$/, "");
+    const isLocalEndpoint = !!(this.config.endpoint && this.config.endpoint.includes("localhost"));
+    const webhookBase =
+      this.config.webhookBaseUrl
+        ? this.config.webhookBaseUrl.replace(/\/$/, "")
+        : (isLocalEndpoint ? `http://host.docker.internal:${process.env.PORT || 3000}` : defaultBase);
+
+    const webhookUrl = `${webhookBase}/api/${encodeURIComponent(this.config.name)}/confirm`;
+
     const manifestString = renderTemplate(manifestTemplate, {
       INSTANCE: this.config.name,
-      WEBHOOK_URL:
-        Meteor.absoluteUrl("api/" + encodeURIComponent(this.config.name)) +
-        "/confirm-upload",
+      WEBHOOK_URL: webhookUrl,
+      ROLE_ARN: this.lambdaRoleArn,
     });
 
-    const manifest = JSON.parse(manifestString, {
-      INSTANCE: this.config.name,
-      WEBHOOK_URL:
-        Meteor.absoluteUrl("api/" + encodeURIComponent(this.config.name)) +
-        "/confirm-upload",
-    });
+    const manifest = JSON.parse(manifestString);
 
     this.log("read and rendered manifest", manifest);
 
@@ -222,13 +252,17 @@ export class MeteorS3 {
       const params = {
         FunctionName: manifest.FunctionName,
         Code: { ZipFile: Buffer.from(functionCode) },
-        Role: manifest.Role || "arn:aws:iam::123456789012:role/lambda-role",
+        Role: manifest.Role || this.lambdaRoleArn,
         Handler: manifest.Handler || "index.handler",
         Runtime: manifest.Runtime || "nodejs20.x",
         MemorySize: manifest.MemorySize || 128,
         Timeout: manifest.Timeout || 10,
         Environment: {
-          Variables: { WEBHOOK_URL: manifest.WEBHOOK_URL },
+          Variables: {
+            WEBHOOK_URL: manifest.WEBHOOK_URL,
+            BUCKET: this.bucketName,
+            INSTANCE: this.config.name,
+          },
         },
       };
       this.log(
@@ -305,6 +339,181 @@ export class MeteorS3 {
         (result.Functions || []).map((f) => f.FunctionName)
       );
     }
+  }
+
+  async ensureS3UploadTrigger(functionName) {
+    // 1) Lambda-Invoke durch S3 erlauben
+    const lambdaFn = await this.lambdaClient.send(
+      new GetFunctionCommand({ FunctionName: functionName })
+    );
+    const lambdaArn = lambdaFn.Configuration.FunctionArn;
+
+    try {
+      await this.lambdaClient.send(
+        new AddPermissionCommand({
+          Action: "lambda:InvokeFunction",
+          FunctionName: functionName,
+          Principal: "s3.amazonaws.com",
+          StatementId: `s3invoke-${this.bucketName}`.slice(0, 100),
+          SourceArn: `arn:aws:s3:::${this.bucketName}`,
+        })
+      );
+      this.log(`[ensureS3UploadTrigger] AddPermission ok for ${functionName}`);
+    } catch (e) {
+      if (e.name !== "ResourceConflictException") throw e; // bereits vorhanden
+      this.log("[ensureS3UploadTrigger] Permission already exists");
+    }
+
+    // 2) Bucket-Notification mergen
+    const current = await this.s3Client.send(
+      new GetBucketNotificationConfigurationCommand({ Bucket: this.bucketName })
+    );
+    const existing = current.LambdaFunctionConfigurations || [];
+    // gewünschte Konfiguration
+    const desired = {
+      Id: `uploads-${functionName}`.slice(0, 50),
+      LambdaFunctionArn: lambdaArn,
+      Events: ["s3:ObjectCreated:*"],
+      Filter: { Key: { FilterRules: [{ Name: "prefix", Value: "uploads/" }] } },
+    };
+
+    // Primitive Merge: ersetze Eintrag mit gleicher ARN+Id
+    const filtered = existing.filter(
+      (c) =>
+        !(
+          c.LambdaFunctionArn === desired.LambdaFunctionArn &&
+          c.Id === desired.Id
+        )
+    );
+    const merged = [...filtered, desired];
+
+    await this.s3Client.send(
+      new PutBucketNotificationConfigurationCommand({
+        Bucket: this.bucketName,
+        NotificationConfiguration: {
+          LambdaFunctionConfigurations: merged,
+          // (bewahre evtl. vorhandene Queue/Topic-Konfigurationen)
+          QueueConfigurations: current.QueueConfigurations || [],
+          TopicConfigurations: current.TopicConfigurations || [],
+        },
+      })
+    );
+
+    this.log(
+      "[ensureS3UploadTrigger] S3 notification configured for prefix 'uploads/'"
+    );
+  }
+
+  async ensureRoles() {
+    this.IAMClient = new IAMClient({
+      region: this.config.region,
+      credentials: {
+        accessKeyId: this.config.accessKeyId,
+        secretAccessKey: this.config.secretAccessKey,
+      },
+      endpoint: this.config.endpoint, // optional (LocalStack)
+    });
+
+    const roleName = `MeteorS3LambdaExecRole-${this.config.name}`;
+    const trustPolicy = {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: { Service: "lambda.amazonaws.com" },
+          Action: "sts:AssumeRole",
+        },
+      ],
+    };
+
+    // get or create role
+    let roleArn;
+    try {
+      const { Role } = await this.IAMClient.send(
+        new GetRoleCommand({ RoleName: roleName })
+      );
+      roleArn = Role.Arn;
+      await this.IAMClient.send(
+        new UpdateAssumeRolePolicyCommand({
+          RoleName: roleName,
+          PolicyDocument: JSON.stringify(trustPolicy),
+        })
+      );
+      this.log(`[ensureRoles] Role exists: ${roleName}`);
+    } catch (e) {
+      if (e.name !== "NoSuchEntityException") throw e;
+      const { Role } = await this.IAMClient.send(
+        new CreateRoleCommand({
+          RoleName: roleName,
+          AssumeRolePolicyDocument: JSON.stringify(trustPolicy),
+          Description: `Execution role for MeteorS3 (${this.config.name})`,
+        })
+      );
+      roleArn = Role.Arn;
+      this.log(`[ensureRoles] Role created: ${roleName}`);
+    }
+
+    // attach CloudWatch logs policy
+    this.IAMClient.send(
+      new AttachRolePolicyCommand({
+        RoleName: roleName,
+        PolicyArn:
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+      })
+    );
+
+    // least-privilege S3 Inline-Policy (auf deinen Bucket)
+    const inlineName = `MeteorS3-S3Access-${this.config.name}-${this.bucketName}`;
+    const s3Policy = {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:HeadObject",
+            "s3:DeleteObject",
+          ],
+          Resource: `arn:aws:s3:::${this.bucketName}/*`,
+        },
+        {
+          Effect: "Allow",
+          Action: ["s3:ListBucket"],
+          Resource: `arn:aws:s3:::${this.bucketName}`,
+        },
+      ],
+    };
+    // idempotent schreiben
+    try {
+      const { PolicyDocument } = await this.IAMClient.send(
+        new GetRolePolicyCommand({ RoleName: roleName, PolicyName: inlineName })
+      );
+      const current = JSON.parse(decodeURIComponent(PolicyDocument));
+      if (JSON.stringify(current) !== JSON.stringify(s3Policy)) {
+        await this.IAMClient.send(
+          new PutRolePolicyCommand({
+            RoleName: roleName,
+            PolicyName: inlineName,
+            PolicyDocument: JSON.stringify(s3Policy),
+          })
+        );
+      }
+    } catch (e) {
+      if (e.name === "NoSuchEntityException") {
+        await this.IAMClient.send(
+          new PutRolePolicyCommand({
+            RoleName: roleName,
+            PolicyName: inlineName,
+            PolicyDocument: JSON.stringify(s3Policy),
+          })
+        );
+      } else {
+        throw e;
+      }
+    }
+
+    return roleArn;
   }
 
   async ensureLambdaFunctions() {
@@ -530,6 +739,7 @@ export class MeteorS3 {
       "/api/" + encodeURIComponent(this.config.name) + "/confirm",
       bodyParser.json(),
       async (req, res) => {
+        this.log("Webhook triggered");
         // Handle the confirmation request
         const { key } = req.body;
 
@@ -543,6 +753,7 @@ export class MeteorS3 {
         if (!file) {
           return res.status(404).json({ error: "File not found" });
         }
+        
         this.handleFileUploadEvent(file._id)
           .then(() => {
             // Simulate a successful confirmation
@@ -625,7 +836,7 @@ export class MeteorS3 {
       mimeType: type,
       key: params.Key,
       bucket: this.bucketName,
-      status: Meteor.isDevelopment ? "uploaded" : "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
+      status: "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
       ownerId: userId, // Set this if you have user management
       createdAt: new Date(),
       meta,

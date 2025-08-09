@@ -10,7 +10,6 @@ const s3 = new MeteorS3({
   secretAccessKey:
     process.env.AWS_SECRET_ACCESS_KEY || Meteor.settings?.aws?.secretAccessKey,
   name: "publicFiles",
-
   endpoint: "http://localhost:4566", // Optional, this defaults to the AWS S3 endpoint
   region: "eu-central-1", // Optional, this defaults to 'eu-central-1'
   verbose: true, // Optional, this defaults to false
