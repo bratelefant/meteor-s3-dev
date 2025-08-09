@@ -16,6 +16,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MeteorS3BucketsSchema } from "./schemas/buckets";
 import "meteor/aldeed:collection2/dynamic";
 import { MeteorS3FilesSchema } from "./schemas/files";
+import bodyParser from "body-parser";
 
 /**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
@@ -58,6 +59,9 @@ export class MeteorS3 {
         );
       });
 
+    this.files.createIndexAsync({ key: 1 }, { unique: true }).catch((e) => {
+      console.error("Failed to create index on meteor_s3_files collection:", e);
+    });
     // Initialize empty hooks. Override these in your app to add custom behavior.
     this.onBeforeUpload = async (_fileDoc) => {};
     this.onAfterUpload = async (_fileDoc) => {};
@@ -127,6 +131,10 @@ export class MeteorS3 {
 
     // Ensure that the methods for file uploads and downloads are available
     await this.ensureMethods();
+
+    // Ensure that the REST API endpoints are available
+    await this.ensureEndpoints();
+
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
 
@@ -334,6 +342,42 @@ export class MeteorS3 {
         });
       },
     });
+  }
+
+  /**
+   * Ensures that the REST API endpoints are available.
+   * This is called automatically when the instance is initialized and should not be called manually.
+   * @returns {Promise<void>}
+   */
+  async ensureEndpoints() {
+    WebApp.handlers.post(
+      "/api/" + encodeURIComponent(this.config.name) + "/confirm",
+      bodyParser.json(),
+      async (req, res) => {
+        // Handle the confirmation request
+        const { key } = req.body;
+
+        // Perform any necessary validation or processing
+        if (!key) {
+          return res.status(400).json({ error: "Missing key" });
+        }
+
+        // Call the file upload confirmation handler
+        const file = await this.files.findOneAsync({ key });
+        if (!file) {
+          return res.status(404).json({ error: "File not found" });
+        }
+        this.handleFileUploadEvent(file._id)
+          .then(() => {
+            // Simulate a successful confirmation
+            res.status(200).json({ message: "File upload confirmed", key });
+          })
+          .catch((error) => {
+            console.error("Error confirming file upload:", error);
+            res.status(500).json({ error: "Internal server error" });
+          });
+      }
+    );
   }
 
   /**
