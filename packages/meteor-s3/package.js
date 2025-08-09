@@ -12,6 +12,7 @@ Package.describe({
 
 Npm.depends({
   "@aws-sdk/client-s3": "3.859.0",
+  "@aws-sdk/client-lambda": "3.859.0",
   "@aws-sdk/s3-request-presigner": "3.859.0",
   axios: "1.11.0",
   "body-parser": "2.2.0",
@@ -25,6 +26,13 @@ Package.onUse(function (api) {
   api.use("aldeed:collection2@4.1.4");
   api.mainModule("server.js", "server");
   api.mainModule("common.js");
+  api.addAssets(
+    [
+      "private/lambda/uploadHandler/src.zip",
+      "private/lambda/uploadHandler/manifest.tpl.json",
+    ],
+    "server"
+  );
 });
 
 Package.onTest(function (api) {

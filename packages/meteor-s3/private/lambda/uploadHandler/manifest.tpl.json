@@ -1,0 +1,14 @@
+{
+  "FunctionName": "meteorS3-${INSTANCE}-confirmUpload",
+  "Runtime": "nodejs20.x",
+  "Handler": "index.handler",
+  "Description": "Confirm upload for instance ${INSTANCE}",
+  "Timeout": 10,
+  "MemorySize": 128,
+  "Environment": {
+    "Variables": {
+      "WEBHOOK_URL": "${WEBHOOK_URL}"
+    }
+  },
+  "Layers": []
+}

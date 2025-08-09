@@ -17,6 +17,12 @@ import { MeteorS3BucketsSchema } from "./schemas/buckets";
 import "meteor/aldeed:collection2/dynamic";
 import { MeteorS3FilesSchema } from "./schemas/files";
 import bodyParser from "body-parser";
+import { renderTemplate } from "./helper/templates";
+import {
+  LambdaClient,
+  CreateFunctionCommand,
+  ListFunctionsCommand,
+} from "@aws-sdk/client-lambda";
 
 /**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
@@ -135,6 +141,9 @@ export class MeteorS3 {
     // Ensure that the REST API endpoints are available
     await this.ensureEndpoints();
 
+    // Ensure that the Lambda functions for this instance exist
+    await this.ensureLambdaFunctions();
+
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
 
@@ -155,6 +164,90 @@ export class MeteorS3 {
     const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
 
     return baseName.substring(0, 63);
+  }
+
+  /**
+   * Deploys a Lambda function.
+   * @param {*} dirName Name of the directory containing the Lambda function code, relative to the project root/lambda/functions
+   */
+  async deployLambdaFunction(dirName) {
+    const manifestTemplate = await Assets.getTextAsync(
+      "private/lambda/uploadHandler/manifest.tpl.json"
+    );
+
+    const manifestString = renderTemplate(manifestTemplate, {
+      INSTANCE: this.config.name,
+      WEBHOOK_URL:
+        Meteor.absoluteUrl("api/" + encodeURIComponent(this.config.name)) +
+        "/confirm-upload",
+    });
+
+    const manifest = JSON.parse(manifestString, {
+      INSTANCE: this.config.name,
+      WEBHOOK_URL:
+        Meteor.absoluteUrl("api/" + encodeURIComponent(this.config.name)) +
+        "/confirm-upload",
+    });
+
+    this.log("read and rendered manifest", manifest);
+
+    // Read the Lambda function code from the specified directory
+    const functionCode = await Assets.getBinaryAsync(
+      "private/lambda/uploadHandler/src.zip"
+    );
+
+    // Deploy the Lambda function
+    const params = {
+      FunctionName: manifest.FunctionName,
+      Code: {
+        ZipFile: Buffer.from(functionCode), // create a Buffer from the Uint8Array
+      },
+      Role: manifest.Role || "arn:aws:iam::123456789012:role/lambda-role",
+      Handler: manifest.Handler || "index.handler",
+      Runtime: manifest.Runtime || "nodejs20.x",
+      MemorySize: manifest.MemorySize || 128,
+      Timeout: manifest.Timeout || 10,
+      Environment: {
+        Variables: {
+          WEBHOOK_URL: manifest.WEBHOOK_URL,
+        },
+      },
+    };
+
+    this.log("Sending params", params);
+
+    const response = await this.lambdaClient.send(
+      new CreateFunctionCommand(params)
+    );
+
+    const result = await this.lambdaClient.send(new ListFunctionsCommand({}));
+    console.log(result);
+  }
+
+  async ensureLambdaFunctions() {
+    // Ensure that the Lambda function for this instance exists
+    this.lambdaClient = new LambdaClient({
+      region: this.config.region,
+      endpoint: this.config.endpoint,
+      credentials: {
+        accessKeyId: this.config.accessKeyId,
+        secretAccessKey: this.config.secretAccessKey,
+      },
+    });
+
+    try {
+      await this.deployLambdaFunction("uploadHandler");
+      this.log(
+        `Lambda function for instance ${this.config.name} deployed successfully.`
+      );
+    } catch (error) {
+      console.error("Error deploying Lambda function:", error);
+      throw new Meteor.Error(
+        "lambda-deployment-error",
+        `Failed to deploy Lambda function: ${error.message}`,
+        error
+      );
+    }
   }
 
   /**

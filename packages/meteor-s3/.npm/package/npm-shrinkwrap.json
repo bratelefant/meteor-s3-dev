@@ -87,6 +87,11 @@
         }
       }
     },
+    "@aws-sdk/client-lambda": {
+      "version": "3.859.0",
+      "resolved": "https://registry.npmjs.org/@aws-sdk/client-lambda/-/client-lambda-3.859.0.tgz",
+      "integrity": "sha512-p9/6TrAESLLajn9ytJs6S6ErXyyEbxlO6v44oPXiDeNRKVQxevkG+brAfHDmh7dZk9EQkmyp5AWqo1dZrpkhdg=="
+    },
     "@aws-sdk/client-s3": {
       "version": "3.859.0",
       "resolved": "https://registry.npmjs.org/@aws-sdk/client-s3/-/client-s3-3.859.0.tgz",
