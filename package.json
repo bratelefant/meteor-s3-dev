@@ -1,6 +1,10 @@
 {
   "name": "meteor-app",
   "private": true,
+  "engines": {
+    "node": "22.16.0",
+    "npm": "10.9.2"
+  },
   "scripts": {
     "start": "LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor run --settings settings.json",
     "test": "MOCHA_TIMEOUT=10000 LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor test --once --driver-package meteortesting:mocha",

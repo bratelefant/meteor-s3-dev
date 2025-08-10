@@ -106,7 +106,7 @@ Meteor.startup(async () => {
   // Initialize the S3 client
   await s3.init();
   // e2e Autotest s3 client on the server side
-  runTests();
+  !Meteor.isProduction && runTests();
 });
 
 onPageLoad((sink) => {
