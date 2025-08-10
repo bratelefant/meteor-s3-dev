@@ -11,7 +11,7 @@ const s3 = new MeteorS3({
     process.env.AWS_SECRET_ACCESS_KEY || Meteor.settings?.aws?.secretAccessKey,
   name: "publicFiles",
   endpoint: "http://localhost:4566", // Optional, this defaults to the AWS S3 endpoint
-  webhookBaseUrl: "http://192.168.1.240:3000", // Optional, this defaults to the AWS S3 webhook endpoint
+  webhookBaseUrl: Meteor.isDevelopment ? "http://" + process.env.LOCAL_IP + ":3000" : undefined, // Optional, this defaults to the AWS S3 webhook endpoint
   region: "eu-central-1", // Optional, this defaults to 'eu-central-1'
   verbose: true, // Optional, this defaults to false
   skipPermissionChecks: false, // Optional, this defaults to false
