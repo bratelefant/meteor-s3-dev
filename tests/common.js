@@ -67,7 +67,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       expect(fileId).to.equal("12345");
       expect(MeteorS3Client.uploadFileWithProgress.calledOnce).to.be.true;
-      expect(callStub.calledTwice).to.be.true;
+      expect(callStub.calledOnce).to.be.true;
       expect(callStub.firstCall.args[0]).to.equal(
         "meteorS3.testBucket.getUploadUrl"
       );
@@ -76,10 +76,6 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         size: file.size,
         type: file.type,
       });
-      expect(callStub.secondCall.args[0]).to.equal(
-        "meteorS3.testBucket.handleFileUploadEvent"
-      );
-      expect(callStub.secondCall.args[1]).to.equal("12345");
     });
 
     it("should handle upload errors gracefully", async function () {

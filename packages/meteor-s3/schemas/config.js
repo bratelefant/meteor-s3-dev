@@ -82,6 +82,11 @@ export const configSchema = new SimpleSchema({
     label: "S3 Endpoint URL",
     optional: true, // If omitted we use the default S3 endpoint; in testing we use a local MinIO instance
   },
+  webhookBaseUrl: {
+    type: String,
+    label: "Webhook Base URL",
+    optional: true,
+  },
 });
 
 export const clientConfigSchema = new SimpleSchema({

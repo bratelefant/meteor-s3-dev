@@ -12,13 +12,14 @@ We want to make the useage of aws s3 as simple as possible in your Meteor 3 app.
 - Minimal config use of S3
 - Auto-create and setup your buckets
 - Easily upload and download files to/from s3
-- Auto-setup Amazon event bridge to log the state of uploaded files (production only)
+- Auto-setup Lambda function to log the state of uploaded files
 - Secure uploads, download and removal of files via the `onCheckPermissions` hook for each instance individually
 - Use `onBeforeUpload` and `onAfterUpload` hooks to add your custom processing logic
+- Use `onGetKey` hook to implement a custom organization of the files in your bucket
+- Fully local test env to check functionality and AWS communication
 
 ## Planned features
 
-- Auto-setup S3 event trigger to call post-upload handler on the server
 - Auto-setup lambda function to create thumbnails
 - Auto-setup lambda function to zip files directly in the bucket
 
