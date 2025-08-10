@@ -80,7 +80,7 @@ async function runTests() {
   let ready = false;
   while (!ready) {
     // Check the status of the upload
-    const fileDoc = await s3.files.findOneAsync({ _id: fileId });
+    const fileDoc = await s3Client.head(fileId);
     if (fileDoc && fileDoc.status === "uploaded") {
       ready = true;
     } else {

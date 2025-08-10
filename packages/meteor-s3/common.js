@@ -101,6 +101,27 @@ export class MeteorS3Client {
   }
 
   /**
+   * Gets the metadata for a file in S3, including the s3 status (pending or uploaded).
+   *
+   * You can use this to wait for a file to finish uploading to s3; alternatively, you can check the status reactively
+   * by setting up a publication that publishes the files state and subscribe to it in the client.
+   *
+   * @param {string} fileId - The ID of the file to get metadata for.
+   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @returns {Promise<Object>} - The metadata of the file, for instance the file size and MIME type and s3 status (pending or uploaded)
+   * @throws {Meteor.Error} - If the metadata cannot be obtained.
+   */
+  async head(fileId, context = {}) {
+    check(fileId, String);
+    check(context, Object);
+    this.log(`Getting HEAD for file ID: ${fileId}`);
+    return await Meteor.callAsync(`meteorS3.${this.config.name}.head`, {
+      fileId,
+      context,
+    });
+  }
+
+  /**
    * Downloads a file from S3 as a blob.
    * If called on the server, you get the contents, on the client, this returns a `Blob` object, so
    * you need to call the `.text()` method if the file is a text file, for example

@@ -173,6 +173,9 @@ describe("Test MeteorS3 class (Server)", function () {
       expect(Object.keys(registerStub.firstCall.args[0])).to.include(
         "meteorS3." + s3.config.name + ".removeFile"
       );
+      expect(Object.keys(registerStub.firstCall.args[0])).to.include(
+        "meteorS3." + s3.config.name + ".head"
+      );
     });
   });
 
@@ -469,6 +472,69 @@ describe("Test MeteorS3 class (Server)", function () {
         expect.fail("Should have thrown file not uploaded error");
       } catch (error) {
         expect(error.error).to.equal("s3-file-not-ready");
+      }
+    });
+  });
+
+  describe("head", function () {
+    it("should return file metadata", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3, "handlePermissionsCheck").resolves(true);
+
+      const result = await s3.head({ fileId });
+
+      expect(result).to.deep.equal({
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      });
+    });
+
+    it("should throw an error if file does not exist", async function () {
+      const fileId = "nonExistentFileId";
+
+      // Mock files collection to return null
+      sinon.stub(s3.files, "findOneAsync").resolves(null);
+
+      try {
+        await s3.head({ fileId });
+        expect.fail("Should have thrown file not found error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-file-not-found");
+      }
+    });
+
+    it("should throw an error if permissions are denied", async function () {
+      const fileId = "testFileId";
+      const file = {
+        _id: fileId,
+        filename: "testFile.txt",
+        key: "testFileKey",
+        bucket: "testBucket",
+        status: "uploaded",
+      };
+
+      // Mock files collection
+      sinon.stub(s3.files, "findOneAsync").resolves(file);
+      sinon.stub(s3, "handlePermissionsCheck").resolves(false);
+
+      try {
+        await s3.head({ fileId });
+        expect.fail("Should have thrown permission denied error");
+      } catch (error) {
+        expect(error.error).to.equal("s3-permission-denied");
       }
     });
   });

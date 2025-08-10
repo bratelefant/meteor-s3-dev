@@ -47,6 +47,14 @@ import crypto from "crypto";
 // --- Lambda deploy helpers -------------------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const publicFileFields = {
+  _id: 1,
+  filename: 1,
+  size: 1,
+  mimeType: 1,
+  status: 1,
+};
+
 async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
   // check if Lambda function exists
   try {
@@ -878,6 +886,20 @@ export class MeteorS3 {
         });
       },
 
+      [`meteorS3.${this.config.name}.head`]: async ({
+        fileId,
+        context = {},
+      }) => {
+        check(fileId, String);
+        check(context, Object);
+
+        return await self.head({
+          fileId,
+          context,
+          userId: Meteor.userId(),
+        });
+      },
+
       /**
        * Right now it is neccessary to call this method after the file is uploaded.
        * The MeteorS3 client will do this automatically after the upload.
@@ -1042,6 +1064,45 @@ export class MeteorS3 {
       url,
       fileId, // Return the file ID for later reference
     };
+  }
+
+  /**
+   * Gets the metadata for a file in S3.
+   * @param {Object} param0 - The parameters for getting the file metadata.
+   * @param {String} param0.fileId - The ID of the file to get metadata for.
+   * @param {Object} [param0.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @returns {Promise<Object>} - The metadata of the file, for instance the file size and MIME type and s3 status (pending or uploaded)
+   * @throws {Meteor.Error} - If the metadata cannot be obtained.
+   */
+  async head({ fileId, context = {}, userId }) {
+    check(fileId, String);
+    check(context, Object);
+    check(userId, Match.Maybe(String));
+
+    const file = await this.files.findOneAsync(fileId);
+    if (!file) {
+      throw new Meteor.Error("s3-file-not-found", "File not found.");
+    }
+
+    const hasPermission = await this.handlePermissionsCheck(
+      file,
+      "download",
+      userId,
+      context
+    );
+    if (!hasPermission) {
+      throw new Meteor.Error(
+        "s3-permission-denied",
+        "You do not have permission to access this file."
+      );
+    }
+
+    const result = await this.files.findOneAsync(fileId, {
+      fields: publicFileFields,
+    });
+
+    this.log(`Getting HEAD for file ID: ${fileId}`);
+    return result;
   }
 
   /**
