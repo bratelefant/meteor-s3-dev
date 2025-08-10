@@ -9,16 +9,20 @@ const s3 = new MeteorS3({
     process.env.AWS_ACCESS_KEY_ID || Meteor.settings?.aws?.accessKeyId,
   secretAccessKey:
     process.env.AWS_SECRET_ACCESS_KEY || Meteor.settings?.aws?.secretAccessKey,
-  name: "publicFiles",
-  endpoint: "http://localhost:4566", // Optional, this defaults to the AWS S3 endpoint
-  webhookBaseUrl: Meteor.isDevelopment
-    ? "http://" + process.env.LOCAL_IP + ":3000"
-    : undefined, // Optional, this defaults to the AWS S3 webhook endpoint
-  region: "eu-central-1", // Optional, this defaults to 'eu-central-1'
-  verbose: true, // Optional, this defaults to false
-  skipPermissionChecks: false, // Optional, this defaults to false
-  uploadExpiresIn: 60, // Optional, sets the expiration time for the presigned put urls; this defaults to 60 seconds
-  downloadExpiresIn: 60, // Optional, sets the expiration time for the presigned get urls; this defaults to 60 seconds
+  name: Meteor.settings?.name || "publicFiles",
+  endpoint:
+    Meteor.settings?.endpoint ||
+    (Meteor.isDevelopment ? "http://localhost:4566" : undefined), // Optional, this defaults to the AWS S3 endpoint
+  webhookBaseUrl:
+    Meteor.settings?.webhookBaseUrl ||
+    (Meteor.isDevelopment
+      ? "http://" + process.env.LOCAL_IP + ":3000"
+      : undefined), // Optional, this defaults to the AWS S3 webhook endpoint
+  region: Meteor.settings?.region || "eu-central-1", // Optional, this defaults to 'eu-central-1'
+  verbose: Meteor.settings?.verbose || true, // Optional, this defaults to false
+  skipPermissionChecks: Meteor.settings?.skipPermissionChecks || false, // Optional, this defaults to false
+  uploadExpiresIn: Meteor.settings?.uploadExpiresIn || 60, // Optional, sets the expiration time for the presigned put urls; this defaults to 60 seconds
+  downloadExpiresIn: Meteor.settings?.downloadExpiresIn || 60, // Optional, sets the expiration time for the presigned get urls; this defaults to 60 seconds
   onCheckPermissions: async (_fileDoc, _action, _userId, _context) => {
     return true; // Allow all actions by default
   },
