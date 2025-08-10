@@ -55,16 +55,11 @@ async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
     );
   } catch (e) {
     if (e.name === "ResourceNotFoundException") {
-      console.log(
-        `[waitForLambdaReady] Lambda function not found: ${functionName}`
-      );
       return;
     }
     throw e;
   }
-  console.log(
-    `[waitForLambdaReady] Waiting for Lambda function: ${functionName}`
-  );
+
   const { timeoutMs = 60000, pollMs = 800 } = opts;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -73,13 +68,13 @@ async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
         new GetFunctionCommand({ FunctionName: functionName })
       );
       const status = cfg?.Configuration?.LastUpdateStatus;
-      console.log(`[waitForLambdaReady] Lambda function status: ${status}`);
+
       if (!status || status === "Successful") return;
       if (status === "Failed")
         throw new Error("Lambda LastUpdateStatus=Failed");
     } catch (e) {
       // LocalStack can briefly 404 during update; tolerate and retry
-      console.log(`[waitForLambdaReady] Error: ${e.message}`);
+      console.error(`[waitForLambdaReady] Error: ${e.message}`);
     }
     await sleep(pollMs);
   }

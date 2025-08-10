@@ -125,7 +125,7 @@ describe("Test MeteorS3 class (Server)", function () {
         ? "http://" + process.env.LOCAL_IP + ":3000"
         : undefined,
       onCheckPermissions: () => true, // Mock permission check
-      verbose: true
+      verbose: true,
     };
     s3 = new MeteorS3(config);
 
@@ -136,7 +136,6 @@ describe("Test MeteorS3 class (Server)", function () {
     sinon.restore(); // Restore original methods
   });
 
-  
   describe("ensureBucket", function () {
     it("should create a new bucket if it does not exist", async function () {
       const bucketName = "test-bucket-12345";
@@ -364,9 +363,7 @@ describe("Test MeteorS3 class (Server)", function () {
 
       const fileDoc = insertStub.firstCall.args[0];
       // In development (which Meteor.isDevelopment returns true), status should be "uploaded"
-      expect(fileDoc.status).to.equal(
-        "pending"
-      );
+      expect(fileDoc.status).to.equal("pending");
     });
 
     it("should include metadata in file document", async function () {
