@@ -1,0 +1,15 @@
+{
+  "FunctionName": "meteorS3-${INSTANCE}-uploadHandler",
+  "Role": "${ROLE_ARN}",
+  "Runtime": "nodejs20.x",
+  "Handler": "index.handler",
+  "Description": "Upload handler for instance ${INSTANCE}",
+  "Timeout": 10,
+  "MemorySize": 128,
+  "Environment": {
+    "Variables": {
+      "WEBHOOK_URL": "${WEBHOOK_URL}"
+    }
+  },
+  "Layers": []
+}

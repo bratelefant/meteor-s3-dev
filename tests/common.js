@@ -67,7 +67,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       expect(fileId).to.equal("12345");
       expect(MeteorS3Client.uploadFileWithProgress.calledOnce).to.be.true;
-      expect(callStub.calledTwice).to.be.true;
+      expect(callStub.calledOnce).to.be.true;
       expect(callStub.firstCall.args[0]).to.equal(
         "meteorS3.testBucket.getUploadUrl"
       );
@@ -76,10 +76,6 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         size: file.size,
         type: file.type,
       });
-      expect(callStub.secondCall.args[0]).to.equal(
-        "meteorS3.testBucket.handleFileUploadEvent"
-      );
-      expect(callStub.secondCall.args[1]).to.equal("12345");
     });
 
     it("should handle upload errors gracefully", async function () {
@@ -173,51 +169,64 @@ describe("Test MeteorS3Client (isomorphic)", function () {
     });
   });
 
-  describe("downloadFile", function () {
-    it("should return the files contents", async function () {
+  describe("head", function () {
+    it("should return the file metadata", async function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
       const fileId = "12345";
 
       // Mock the Meteor.callAsync method
-      const downloadUrlStub = sinon.stub(s3, "getDownloadUrl");
-      downloadUrlStub.resolves("http://localhost:3000/download/testfile.txt");
+      const callStub = sinon.stub(Meteor, "callAsync");
+      callStub.withArgs("meteorS3.testBucket.head").resolves({
+        fileId: "12345",
+        size: 1024,
+        type: "text/plain",
+        status: "uploaded",
+      });
 
-      const result = await s3.downloadFile(fileId);
+      const result = await s3.head(fileId);
 
-      if (Meteor.isServer) {
-        expect(result).to.deep.equal("This is the content of testfile.txt");
-      }
-      if (Meteor.isClient) {
-        expect(result).to.be.instanceOf(Blob);
-        const text = await result.text();
-        expect(text).to.equal("This is the content of testfile.txt");
-      }
-      expect(downloadUrlStub.calledOnce).to.be.true;
-      expect(downloadUrlStub.firstCall.args[0]).to.equal(fileId);
-    });
-
-    it("should handle errors gracefully", async function () {
-      const s3 = new MeteorS3Client({ name: "testBucket" });
-      const fileId = "12345";
-
-      sinon.stub(s3, "getDownloadUrl").rejects(new Error("Invalid URL"));
-
-      try {
-        await s3.downloadFile(fileId);
-      } catch (error) {
-        expect(error.message).to.equal("Invalid URL");
-      }
+      expect(result).to.deep.equal({
+        fileId: "12345",
+        size: 1024,
+        type: "text/plain",
+        status: "uploaded",
+      });
+      expect(callStub.calledOnce).to.be.true;
+      expect(callStub.firstCall.args[0]).to.equal("meteorS3.testBucket.head");
+      expect(callStub.firstCall.args[1]).to.deep.equal({
+        fileId: "12345",
+        context: {},
+      });
     });
 
     it("should throw an error if arguments are not correct", async function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
 
       try {
-        await s3.downloadFile(null);
+        await s3.head(null);
       } catch (error) {
         expect(error.message).to.equal(
           "Match error: Expected string, got null"
         );
+      }
+    });
+
+    it("should handle serverside errors", async function () {
+      const s3 = new MeteorS3Client({ name: "testBucket" });
+      const fileId = "12345";
+
+      // Mock the Meteor.callAsync method
+      const callStub = sinon.stub(Meteor, "callAsync");
+      callStub
+        .withArgs("meteorS3.testBucket.head")
+        .rejects(new Error("File not found"));
+
+      try {
+        await s3.head(fileId);
+      } catch (error) {
+        expect(error.message).to.equal("File not found");
+      } finally {
+        Meteor.callAsync.restore();
       }
     });
   });

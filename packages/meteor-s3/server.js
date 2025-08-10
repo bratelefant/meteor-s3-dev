@@ -17,6 +17,110 @@ import { MeteorS3BucketsSchema } from "./schemas/buckets";
 import "meteor/aldeed:collection2/dynamic";
 import { MeteorS3FilesSchema } from "./schemas/files";
 import bodyParser from "body-parser";
+import { renderTemplate } from "./helper/templates";
+import {
+  LambdaClient,
+  CreateFunctionCommand,
+  ListFunctionsCommand,
+  GetFunctionCommand,
+  UpdateFunctionCodeCommand,
+  UpdateFunctionConfigurationCommand,
+} from "@aws-sdk/client-lambda";
+import {
+  IAMClient,
+  GetRoleCommand,
+  CreateRoleCommand,
+  UpdateAssumeRolePolicyCommand,
+  AttachRolePolicyCommand,
+  PutRolePolicyCommand,
+  GetRolePolicyCommand,
+} from "@aws-sdk/client-iam";
+import {
+  GetBucketNotificationConfigurationCommand,
+  PutBucketNotificationConfigurationCommand,
+} from "@aws-sdk/client-s3";
+// Lambda: Permission für S3->Lambda
+import { AddPermissionCommand } from "@aws-sdk/client-lambda";
+
+import crypto from "crypto";
+
+// --- Lambda deploy helpers -------------------------------------------------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const publicFileFields = {
+  _id: 1,
+  filename: 1,
+  size: 1,
+  mimeType: 1,
+  status: 1,
+};
+
+async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
+  // check if Lambda function exists
+  try {
+    await lambdaClient.send(
+      new GetFunctionCommand({ FunctionName: functionName })
+    );
+  } catch (e) {
+    if (e.name === "ResourceNotFoundException") {
+      return;
+    }
+    throw e;
+  }
+
+  const { timeoutMs = 60000, pollMs = 800 } = opts;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const cfg = await lambdaClient.send(
+        new GetFunctionCommand({ FunctionName: functionName })
+      );
+      const status = cfg?.Configuration?.LastUpdateStatus;
+
+      if (!status || status === "Successful") return;
+      if (status === "Failed")
+        throw new Error("Lambda LastUpdateStatus=Failed");
+    } catch (e) {
+      // LocalStack can briefly 404 during update; tolerate and retry
+      console.error(`[waitForLambdaReady] Error: ${e.message}`);
+    }
+    await sleep(pollMs);
+  }
+  throw new Error(`Timeout waiting for Lambda ${functionName} to become ready`);
+}
+
+async function withLambdaUpdateRetry(
+  lambdaClient,
+  fn,
+  functionName,
+  maxRetries = 6
+) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (
+        e?.name === "ResourceConflictException" ||
+        e?.__type === "ResourceConflictException"
+      ) {
+        // another update in progress; wait and retry
+        await waitForLambdaReady(lambdaClient, functionName, {
+          timeoutMs: 30000,
+          pollMs: 700,
+        });
+        continue;
+      }
+      throw e;
+    }
+  }
+  // one last wait to surface a better error if still stuck
+  await waitForLambdaReady(lambdaClient, functionName, {
+    timeoutMs: 30000,
+    pollMs: 700,
+  });
+  return await fn();
+}
+// ---------------------------------------------------------------------------
 
 /**
  * This class provides methods to get pre-signed URLs for uploading and downloading files to/from S3.
@@ -135,6 +239,19 @@ export class MeteorS3 {
     // Ensure that the REST API endpoints are available
     await this.ensureEndpoints();
 
+    // 1) Execution Role sicherstellen
+    this.lambdaRoleArn = await this.ensureRoles();
+
+    this.log("[ensureRoles] Lambda execution role defined");
+
+    // 2) Lambda deployen/aktualisieren
+    await this.ensureLambdaFunctions();
+
+    // 3) S3 -> Lambda Trigger für uploads/ sicherstellen (in echter AWS-Umgebung)
+    await this.ensureS3UploadTrigger(
+      `meteorS3-${this.config.name}-uploadHandler` // FunctionName (siehe Manifest-Template unten)
+    );
+
     this.log(`S3 client ${this.config.name} initialized successfully.`);
   }
 
@@ -152,9 +269,465 @@ export class MeteorS3 {
       .replace(/--+/g, "-");
 
     const randomSuffix = Random.id(6).toLowerCase();
-    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
+    // always use the same base name for development, to prevent flooding aws with random buckets
+    const baseName =
+      Meteor.isDevelopment && !Meteor.isTest
+        ? `meteor-s3-${slugified}`
+        : `meteor-s3-${slugified}-${randomSuffix}`;
 
     return baseName.substring(0, 63);
+  }
+
+  /**
+   * Deploys a Lambda function.
+   */
+  async deployLambdaFunction(_key) {
+    const manifestTemplate = await Assets.getTextAsync(
+      "private/lambda/uploadHandler/manifest.tpl.json"
+    );
+
+    // Determine a webhook base URL that is reachable from the Lambda runtime.
+    // In LocalStack (Docker), 'localhost' would resolve inside the container, not your host app.
+    // Prefer an explicit config override, else use host.docker.internal for local endpoints.
+    const defaultBase = Meteor.absoluteUrl().replace(/\/$/, "");
+    const isLocalEndpoint = !!(
+      this.config.endpoint && this.config.endpoint.includes("localhost")
+    );
+    const webhookBase = this.config.webhookBaseUrl
+      ? this.config.webhookBaseUrl.replace(/\/$/, "")
+      : isLocalEndpoint
+        ? `http://host.docker.internal:${process.env.PORT || 3000}`
+        : defaultBase;
+
+    const webhookUrl = `${webhookBase}/api/${encodeURIComponent(this.config.name)}/confirm`;
+
+    const manifestString = renderTemplate(manifestTemplate, {
+      INSTANCE: this.config.name,
+      WEBHOOK_URL: webhookUrl,
+      ROLE_ARN: this.lambdaRoleArn,
+    });
+
+    const manifest = JSON.parse(manifestString);
+
+    this.log("read and rendered manifest", manifest);
+
+    // Read the Lambda function code from the specified directory
+    const functionCode = await Assets.getBinaryAsync(
+      "private/lambda/uploadHandler/src.zip"
+    );
+
+    // Helper to hash current code zip
+    const localCodeSha256 = crypto
+      .createHash("sha256")
+      .update(Buffer.from(functionCode))
+      .digest("base64");
+
+    let existingFunction = null;
+    try {
+      existingFunction = await this.lambdaClient.send(
+        new GetFunctionCommand({ FunctionName: manifest.FunctionName })
+      );
+    } catch (e) {
+      if (e?.name !== "ResourceNotFoundException") {
+        this.log("Unexpected error checking existing Lambda", e);
+        throw e;
+      }
+    }
+
+    // List functions only in verbose/debug scenarios
+
+    const result = await this.lambdaClient.send(
+      new ListFunctionsCommand({ MaxItems: 5 })
+    );
+    this.log(
+      "(Debug) First functions:",
+      (result.Functions || []).map((f) => f.FunctionName)
+    );
+
+    if (!existingFunction) {
+      // Create new function
+      const params = {
+        FunctionName: manifest.FunctionName,
+        Code: { ZipFile: Buffer.from(functionCode) },
+        Role: manifest.Role || this.lambdaRoleArn,
+        Handler: manifest.Handler || "index.handler",
+        Runtime: manifest.Runtime || "nodejs20.x",
+        MemorySize: manifest.MemorySize || 128,
+        Timeout: manifest.Timeout || 10,
+        Environment: {
+          Variables: {
+            WEBHOOK_URL: webhookUrl,
+            BUCKET: this.bucketName,
+            INSTANCE: this.config.name,
+          },
+        },
+      };
+      this.log(
+        `Creating Lambda function ${manifest.FunctionName} (new deployment)`
+      );
+      await this.lambdaClient.send(new CreateFunctionCommand(params));
+      await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
+      this.log(`Lambda function ${manifest.FunctionName} created.`);
+    } else {
+      // Compare & update
+      const currentCfg = existingFunction.Configuration || {};
+      const updatesNeeded = [];
+
+      // Code update if hash differs
+      if (currentCfg.CodeSha256 !== localCodeSha256) {
+        updatesNeeded.push("code");
+        this.log(
+          `Code update required for ${manifest.FunctionName} (remote hash ${currentCfg.CodeSha256} != local ${localCodeSha256})`
+        );
+        await withLambdaUpdateRetry(
+          this.lambdaClient,
+          () =>
+            this.lambdaClient.send(
+              new UpdateFunctionCodeCommand({
+                FunctionName: manifest.FunctionName,
+                ZipFile: Buffer.from(functionCode),
+                Publish: false,
+              })
+            ),
+          manifest.FunctionName
+        );
+        await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
+      } else {
+        this.log(`Code is up-to-date for ${manifest.FunctionName}`);
+      }
+
+      // Configuration differences
+      const desiredEnv = {
+        WEBHOOK_URL: webhookUrl,
+        BUCKET: this.bucketName,
+        INSTANCE: this.config.name,
+      };
+
+      const currentEnv = currentCfg.Environment?.Variables || {};
+      const configDiff =
+        currentCfg.MemorySize !== (manifest.MemorySize || 128) ||
+        currentCfg.Timeout !== (manifest.Timeout || 10) ||
+        currentCfg.Handler !== (manifest.Handler || "index.handler") ||
+        currentCfg.Runtime !== (manifest.Runtime || "nodejs20.x") ||
+        JSON.stringify(currentEnv) !== JSON.stringify(desiredEnv) ||
+        (manifest.Role && currentCfg.Role !== manifest.Role); // Role change allowed
+
+      if (configDiff) {
+        updatesNeeded.push("configuration");
+        await withLambdaUpdateRetry(
+          this.lambdaClient,
+          () =>
+            this.lambdaClient.send(
+              new UpdateFunctionConfigurationCommand({
+                FunctionName: manifest.FunctionName,
+                Handler: manifest.Handler || "index.handler",
+                Runtime: manifest.Runtime || "nodejs20.x",
+                MemorySize: manifest.MemorySize || 128,
+                Timeout: manifest.Timeout || 10,
+                Role: manifest.Role || currentCfg.Role,
+                Environment: { Variables: desiredEnv },
+              })
+            ),
+          manifest.FunctionName
+        );
+        await waitForLambdaReady(this.lambdaClient, manifest.FunctionName);
+      }
+
+      if (updatesNeeded.length === 0) {
+        this.log(
+          `Lambda function ${manifest.FunctionName} is up-to-date (no changes).`
+        );
+      } else {
+        this.log(
+          `Updated Lambda function ${manifest.FunctionName}: ${updatesNeeded.join(
+            ", "
+          )}`
+        );
+      }
+    }
+  }
+
+  async ensureS3UploadTrigger(functionName) {
+    // 0) Warten bis Lambda wirklich aktiv ist (State=Active + LastUpdateStatus=Successful)
+    const waitReady = async () => {
+      const timeoutMs = 60000;
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const { Configuration: c } = await this.lambdaClient.send(
+          new GetFunctionCommand({ FunctionName: functionName })
+        );
+        const state = c?.State; // "Active" | "Pending" | ...
+        const lus = c?.LastUpdateStatus; // "Successful" | "InProgress" | "Failed"
+        if ((state === "Active" || !state) && (lus === "Successful" || !lus))
+          return;
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      throw new Error(`Lambda ${functionName} not ready for S3 trigger`);
+    };
+    await waitReady();
+
+    // 1) AddPermission für S3 -> Lambda
+    const { Configuration } = await this.lambdaClient.send(
+      new GetFunctionCommand({ FunctionName: functionName })
+    );
+    const lambdaArn = Configuration.FunctionArn;
+
+    try {
+      await this.lambdaClient.send(
+        new AddPermissionCommand({
+          Action: "lambda:InvokeFunction",
+          FunctionName: functionName,
+          Principal: "s3.amazonaws.com",
+          StatementId: `s3invoke-${this.bucketName}`.slice(0, 100),
+          SourceArn: `arn:aws:s3:::${this.bucketName}`,
+        })
+      );
+      this.log(`[ensureS3UploadTrigger] AddPermission ok for ${functionName}`);
+    } catch (e) {
+      if (e.name !== "ResourceConflictException") throw e;
+      this.log("[ensureS3UploadTrigger] Permission already exists");
+    }
+
+    // 2) Notification konfigurieren – mit Retry, falls Lambda noch nicht validierbar ist
+    const desired = {
+      Id: `uploads-${functionName}`.slice(0, 50),
+      LambdaFunctionArn: lambdaArn,
+      Events: ["s3:ObjectCreated:*"],
+      Filter: { Key: { FilterRules: [{ Name: "prefix", Value: "uploads/" }] } },
+    };
+
+    const putWithRetry = async () => {
+      const max = 8;
+      for (let i = 0; i < max; i++) {
+        const current = await this.s3Client.send(
+          new GetBucketNotificationConfigurationCommand({
+            Bucket: this.bucketName,
+          })
+        );
+        const existing = current.LambdaFunctionConfigurations || [];
+        const filtered = existing.filter(
+          (c) =>
+            !(
+              c.LambdaFunctionArn === desired.LambdaFunctionArn &&
+              c.Id === desired.Id
+            )
+        );
+        const merged = [...filtered, desired];
+
+        try {
+          await this.s3Client.send(
+            new PutBucketNotificationConfigurationCommand({
+              Bucket: this.bucketName,
+              NotificationConfiguration: {
+                LambdaFunctionConfigurations: merged,
+                QueueConfigurations: current.QueueConfigurations || [],
+                TopicConfigurations: current.TopicConfigurations || [],
+              },
+            })
+          );
+          return;
+        } catch (e) {
+          // InvalidArgument/ResourceConflict -> kurz warten und erneut
+          if (
+            e.name === "InvalidArgument" ||
+            e.name === "ResourceConflictException"
+          ) {
+            await new Promise((r) => setTimeout(r, 1000 * Math.min(1 + i, 5)));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw new Error("Failed to set S3 notification after retries");
+    };
+
+    await putWithRetry();
+
+    // 3) Verifizieren
+    const verify = await this.s3Client.send(
+      new GetBucketNotificationConfigurationCommand({ Bucket: this.bucketName })
+    );
+    const ok = (verify.LambdaFunctionConfigurations || []).some(
+      (c) =>
+        c.LambdaFunctionArn === desired.LambdaFunctionArn && c.Id === desired.Id
+    );
+    if (!ok) {
+      throw new Error(
+        "[ensureS3UploadTrigger] Verification failed – trigger not present"
+      );
+    }
+    this.log(
+      "[ensureS3UploadTrigger] S3 notification configured for prefix 'uploads/'"
+    );
+  }
+
+  async ensureRoles() {
+    this.IAMClient = new IAMClient({
+      region: this.config.region,
+      credentials: {
+        accessKeyId: this.config.accessKeyId,
+        secretAccessKey: this.config.secretAccessKey,
+      },
+      endpoint: this.config.endpoint, // optional (LocalStack)
+    });
+
+    const roleName = `MeteorS3LambdaExecRole-${this.config.name}`;
+    const trustPolicy = {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: { Service: "lambda.amazonaws.com" },
+          Action: "sts:AssumeRole",
+        },
+      ],
+    };
+
+    // get or create role
+    let roleArn;
+    try {
+      const { Role } = await this.IAMClient.send(
+        new GetRoleCommand({ RoleName: roleName })
+      );
+      roleArn = Role.Arn;
+      await this.IAMClient.send(
+        new UpdateAssumeRolePolicyCommand({
+          RoleName: roleName,
+          PolicyDocument: JSON.stringify(trustPolicy),
+        })
+      );
+      this.log(`[ensureRoles] Role exists: ${roleName}`);
+    } catch (e) {
+      if (e.name !== "NoSuchEntityException") throw e;
+      const { Role } = await this.IAMClient.send(
+        new CreateRoleCommand({
+          RoleName: roleName,
+          AssumeRolePolicyDocument: JSON.stringify(trustPolicy),
+          Description: `Execution role for MeteorS3 (${this.config.name})`,
+        })
+      );
+      roleArn = Role.Arn;
+      this.log(`[ensureRoles] Role created: ${roleName}`);
+    }
+
+    this.log("[ensureRoles] Role exists");
+    // attach CloudWatch logs policy
+    try {
+      await this.IAMClient.send(
+        new AttachRolePolicyCommand({
+          RoleName: roleName,
+          PolicyArn:
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        })
+      );
+    } catch (e) {
+      this.log(
+        `[ensureRoles] Error attaching CloudWatch logs policy: ${e.message}`
+      );
+    }
+
+    this.log("[ensureRoles] CloudWatch logs policy attached");
+    // least-privilege S3 Inline-Policy (auf deinen Bucket)
+    const inlineName = `MeteorS3-S3Access-${this.config.name}-${this.bucketName}`;
+    const s3Policy = {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:HeadObject",
+            "s3:DeleteObject",
+          ],
+          Resource: `arn:aws:s3:::${this.bucketName}/*`,
+        },
+        {
+          Effect: "Allow",
+          Action: ["s3:ListBucket"],
+          Resource: `arn:aws:s3:::${this.bucketName}`,
+        },
+      ],
+    };
+
+    this.log("[ensureRoles] S3 inline policy defined");
+    // idempotent schreiben
+    try {
+      const { PolicyDocument } = await this.IAMClient.send(
+        new GetRolePolicyCommand({ RoleName: roleName, PolicyName: inlineName })
+      );
+      const current = JSON.parse(decodeURIComponent(PolicyDocument));
+      if (JSON.stringify(current) !== JSON.stringify(s3Policy)) {
+        await this.IAMClient.send(
+          new PutRolePolicyCommand({
+            RoleName: roleName,
+            PolicyName: inlineName,
+            PolicyDocument: JSON.stringify(s3Policy),
+          })
+        );
+      }
+    } catch (e) {
+      if (e.name === "NoSuchEntityException") {
+        await this.IAMClient.send(
+          new PutRolePolicyCommand({
+            RoleName: roleName,
+            PolicyName: inlineName,
+            PolicyDocument: JSON.stringify(s3Policy),
+          })
+        );
+      } else {
+        throw e;
+      }
+    }
+
+    this.log("[ensureRoles] S3 inline policy defined ready");
+
+    return roleArn;
+  }
+
+  async ensureLambdaFunctions() {
+    // Ensure that the Lambda function for this instance exists
+    this.log("[ensureLambdaFunctions] Ensuring Lambda functions");
+    this.lambdaClient = new LambdaClient({
+      region: this.config.region,
+      endpoint: this.config.endpoint,
+      credentials: {
+        accessKeyId: this.config.accessKeyId,
+        secretAccessKey: this.config.secretAccessKey,
+      },
+    });
+
+    this.log("[ensureLambdaFunctions] Lambda client created");
+
+    // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
+    try {
+      this.log(
+        "[ensureLambdaFunctions] Waiting for Lambda function to be ready"
+      );
+      await waitForLambdaReady(
+        this.lambdaClient,
+        `meteorS3-${this.config.name}-uploadHandler`,
+        { timeoutMs: 15000, pollMs: 700 }
+      );
+    } catch (_) {
+      this.log(`Lambda function not ready: ${_}`);
+    }
+
+    this.log("[ensureLambdaFunctions] Lambda function ready");
+
+    try {
+      await this.deployLambdaFunction("uploadHandler");
+      this.log(
+        `Lambda function for instance ${this.config.name} deployed successfully.`
+      );
+    } catch (error) {
+      console.error("Error deploying Lambda function:", error);
+      throw new Meteor.Error(
+        "lambda-deployment-error",
+        `Failed to deploy Lambda function: ${error.message}`,
+        error
+      );
+    }
   }
 
   /**
@@ -313,6 +886,20 @@ export class MeteorS3 {
         });
       },
 
+      [`meteorS3.${this.config.name}.head`]: async ({
+        fileId,
+        context = {},
+      }) => {
+        check(fileId, String);
+        check(context, Object);
+
+        return await self.head({
+          fileId,
+          context,
+          userId: Meteor.userId(),
+        });
+      },
+
       /**
        * Right now it is neccessary to call this method after the file is uploaded.
        * The MeteorS3 client will do this automatically after the upload.
@@ -354,6 +941,7 @@ export class MeteorS3 {
       "/api/" + encodeURIComponent(this.config.name) + "/confirm",
       bodyParser.json(),
       async (req, res) => {
+        this.log("Webhook triggered");
         // Handle the confirmation request
         const { key } = req.body;
 
@@ -367,6 +955,7 @@ export class MeteorS3 {
         if (!file) {
           return res.status(404).json({ error: "File not found" });
         }
+
         this.handleFileUploadEvent(file._id)
           .then(() => {
             // Simulate a successful confirmation
@@ -449,7 +1038,7 @@ export class MeteorS3 {
       mimeType: type,
       key: params.Key,
       bucket: this.bucketName,
-      status: Meteor.isDevelopment ? "uploaded" : "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
+      status: "pending", // In production, status "uploaded" will only be set by an event trigger on the S3 bucket
       ownerId: userId, // Set this if you have user management
       createdAt: new Date(),
       meta,
@@ -475,6 +1064,45 @@ export class MeteorS3 {
       url,
       fileId, // Return the file ID for later reference
     };
+  }
+
+  /**
+   * Gets the metadata for a file in S3.
+   * @param {Object} param0 - The parameters for getting the file metadata.
+   * @param {String} param0.fileId - The ID of the file to get metadata for.
+   * @param {Object} [param0.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @returns {Promise<Object>} - The metadata of the file, for instance the file size and MIME type and s3 status (pending or uploaded)
+   * @throws {Meteor.Error} - If the metadata cannot be obtained.
+   */
+  async head({ fileId, context = {}, userId }) {
+    check(fileId, String);
+    check(context, Object);
+    check(userId, Match.Maybe(String));
+
+    const file = await this.files.findOneAsync(fileId);
+    if (!file) {
+      throw new Meteor.Error("s3-file-not-found", "File not found.");
+    }
+
+    const hasPermission = await this.handlePermissionsCheck(
+      file,
+      "download",
+      userId,
+      context
+    );
+    if (!hasPermission) {
+      throw new Meteor.Error(
+        "s3-permission-denied",
+        "You do not have permission to access this file."
+      );
+    }
+
+    const result = await this.files.findOneAsync(fileId, {
+      fields: publicFileFields,
+    });
+
+    this.log(`Getting HEAD for file ID: ${fileId}`);
+    return result;
   }
 
   /**

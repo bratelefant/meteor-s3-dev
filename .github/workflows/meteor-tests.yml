@@ -53,10 +53,12 @@ jobs:
       - name: Setup LocalStack
         uses: localstack/setup-localstack@v0.2.4
         with:
-          image-tag: 'latest'
-          install-awslocal: 'true'
+          image-tag: "latest"
+          install-awslocal: "true"
 
       - name: Run Meteor tests
+        env:
+          LOCAL_IP: $(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1))
         run: npm run test
 
       - name: Upload test results

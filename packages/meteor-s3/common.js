@@ -72,12 +72,14 @@ export class MeteorS3Client {
     await MeteorS3Client.uploadFileWithProgress(url, file, onProgress);
 
     this.log(`File uploaded successfully: ${file.name} with ID: ${fileId}`);
-    // After the upload, we need to call the server method to handle the file upload event
-    await Meteor.callAsync(
+    // This is now done by the lambda function
+    /*
+    false && await Meteor.callAsync(
       `meteorS3.${this.config.name}.handleFileUploadEvent`,
       fileId
     );
     this.log(`File upload event handled for ID: ${fileId}`);
+    */
     return fileId;
   }
 
@@ -96,6 +98,27 @@ export class MeteorS3Client {
       `meteorS3.${this.config.name}.getDownloadUrl`,
       { fileId, context }
     );
+  }
+
+  /**
+   * Gets the metadata for a file in S3, including the s3 status (pending or uploaded).
+   *
+   * You can use this to wait for a file to finish uploading to s3; alternatively, you can check the status reactively
+   * by setting up a publication that publishes the files state and subscribe to it in the client.
+   *
+   * @param {string} fileId - The ID of the file to get metadata for.
+   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @returns {Promise<Object>} - The metadata of the file, for instance the file size and MIME type and s3 status (pending or uploaded)
+   * @throws {Meteor.Error} - If the metadata cannot be obtained.
+   */
+  async head(fileId, context = {}) {
+    check(fileId, String);
+    check(context, Object);
+    this.log(`Getting HEAD for file ID: ${fileId}`);
+    return await Meteor.callAsync(`meteorS3.${this.config.name}.head`, {
+      fileId,
+      context,
+    });
   }
 
   /**

@@ -12,15 +12,16 @@ We want to make the useage of aws s3 as simple as possible in your Meteor 3 app.
 - Minimal config use of S3
 - Auto-create and setup your buckets
 - Easily upload and download files to/from s3
-- Auto-setup Amazon event bridge to log the state of uploaded files (production only)
+- Auto-setup Lambda function to log the state of uploaded files
 - Secure uploads, download and removal of files via the `onCheckPermissions` hook for each instance individually
 - Use `onBeforeUpload` and `onAfterUpload` hooks to add your custom processing logic
+- Use `onGetKey` hook to implement a custom organization of the files in your bucket
+- Fully local test env to check functionality and AWS communication using free version of [LocalStack](https://github.com/localstack/localstack)
 
 ## Planned features
 
-- Auto-setup S3 event trigger to call post-upload handler on the server
 - Auto-setup lambda function to create thumbnails
-- Auto-setup lambda function to zip files directly in the bucket
+- Auto-setup lambda function and meteor methods to zip files directly in the bucket
 
 ## Setup
 
@@ -80,20 +81,75 @@ Your IAM user needs to be able to perform some operations on your s3 buckets. He
     {
       "Sid": "AllowS3BucketManagement",
       "Effect": "Allow",
-      "Action": ["s3:CreateBucket", "s3:ListBucket"],
-      "Resource": "arn:aws:s3:::*"
+      "Action": [
+        "s3:CreateBucket",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:PutBucketCors",
+        "s3:GetBucketCors"
+      ],
+      "Resource": "arn:aws:s3:::meteor-s3-*"
+    },
+    {
+      "Sid": "S3BucketNotifications",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketNotification", "s3:PutBucketNotification"],
+      "Resource": ["arn:aws:s3:::meteor-s3-*"]
     },
     {
       "Sid": "AllowS3ObjectOperations",
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::*/*"
+      "Resource": "arn:aws:s3:::meteor-s3-*/*"
     },
     {
-      "Sid": "AllowS3CorsOperations",
+      "Sid": "LambdaListGlobal",
       "Effect": "Allow",
-      "Action": ["s3:PutBucketCors"],
-      "Resource": "arn:aws:s3:::*"
+      "Action": ["lambda:ListFunctions"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LambdaBasicMgmtScoped",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:GetFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:AddPermission",
+        "lambda:RemovePermission"
+      ],
+      "Resource": "arn:aws:lambda:*:*:function:meteorS3-*"
+    },
+    {
+      "Sid": "ReadOrCreateExecRole",
+      "Effect": "Allow",
+      "Action": ["iam:GetRole", "iam:CreateRole", "iam:UpdateAssumeRolePolicy"],
+      "Resource": "arn:aws:iam::*:role/MeteorS3LambdaExecRole-*"
+    },
+    {
+      "Sid": "AttachLogsManagedPolicy",
+      "Effect": "Allow",
+      "Action": ["iam:AttachRolePolicy"],
+      "Resource": "arn:aws:iam::*:role/MeteorS3LambdaExecRole-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PolicyArn": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        }
+      }
+    },
+    {
+      "Sid": "PutInlineS3Policy",
+      "Effect": "Allow",
+      "Action": ["iam:PutRolePolicy", "iam:GetRolePolicy"],
+      "Resource": "arn:aws:iam::*:role/MeteorS3LambdaExecRole-*"
+    },
+    {
+      "Sid": "PassExecRoleToLambda",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/MeteorS3LambdaExecRole-*"
     }
   ]
 }
