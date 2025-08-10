@@ -17,7 +17,7 @@ const s3 = new MeteorS3({
     Meteor.settings?.webhookBaseUrl ||
     (Meteor.isDevelopment
       ? "http://" + process.env.LOCAL_IP + ":3000"
-      : undefined), // Optional, this defaults to the AWS S3 webhook endpoint
+      : undefined), // Optional, this defaults to the meteor apps absolute Url
   region: Meteor.settings?.region || "eu-central-1", // Optional, this defaults to 'eu-central-1'
   verbose: Meteor.settings?.verbose || true, // Optional, this defaults to false
   skipPermissionChecks: Meteor.settings?.skipPermissionChecks || false, // Optional, this defaults to false
