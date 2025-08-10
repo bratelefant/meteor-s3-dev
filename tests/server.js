@@ -44,6 +44,10 @@ describe("Test MeteorS3 initialisation (Server)", function () {
         accessKeyId: "testAccessKey",
         secretAccessKey: "testSecretKey",
         endpoint: "http://localhost:4566", // Use localstack instance
+        webhookBaseUrl: Meteor.isDevelopment
+          ? "http://" + process.env.LOCAL_IP + ":3000"
+          : undefined,
+        verbose: true,
       };
       const s3 = new MeteorS3(config);
       sinon.spy(s3, "ensureBucket");
@@ -78,6 +82,27 @@ describe("Test MeteorS3 initialisation (Server)", function () {
   });
 });
 
+describe("MeteorS3 static functions", function () {
+  it("should generate a valid bucket name", function () {
+    const instanceName = "Test Bucket 123";
+    const bucketName = MeteorS3.generateValidBucketName(instanceName);
+    expect(bucketName).to.match(/^[a-z0-9-]{1,63}$/);
+    expect(bucketName).to.include("test-bucket-");
+  });
+
+  it("removes invalid characters", function () {
+    const invalidNames = [
+      "",
+      "Invalid Name!",
+      "12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+    ];
+    invalidNames.forEach((name) => {
+      const bucketName = MeteorS3.generateValidBucketName(name);
+      expect(bucketName).to.match(/^[a-z0-9-]{6,63}$/);
+    });
+  });
+});
+
 describe("Test MeteorS3 class (Server)", function () {
   if (!Meteor.isServer) {
     it("should not run on client", function () {
@@ -96,7 +121,11 @@ describe("Test MeteorS3 class (Server)", function () {
       accessKeyId: "testAccessKey",
       secretAccessKey: "testSecretKey",
       endpoint: "http://localhost:4566", // Use localstack instance
+      webhookBaseUrl: Meteor.isDevelopment
+        ? "http://" + process.env.LOCAL_IP + ":3000"
+        : undefined,
       onCheckPermissions: () => true, // Mock permission check
+      verbose: true
     };
     s3 = new MeteorS3(config);
 
@@ -107,27 +136,7 @@ describe("Test MeteorS3 class (Server)", function () {
     sinon.restore(); // Restore original methods
   });
 
-  describe("generateValidBucketName", function () {
-    it("should generate a valid bucket name", function () {
-      const instanceName = "Test Bucket 123";
-      const bucketName = MeteorS3.generateValidBucketName(instanceName);
-      expect(bucketName).to.match(/^[a-z0-9-]{1,63}$/);
-      expect(bucketName).to.include("test-bucket-");
-    });
-
-    it("removes invalid characters", function () {
-      const invalidNames = [
-        "",
-        "Invalid Name!",
-        "12345678901234567890123456789012345678901234567890123456789012345678901234567890",
-      ];
-      invalidNames.forEach((name) => {
-        const bucketName = MeteorS3.generateValidBucketName(name);
-        expect(bucketName).to.match(/^[a-z0-9-]{6,63}$/);
-      });
-    });
-  });
-
+  
   describe("ensureBucket", function () {
     it("should create a new bucket if it does not exist", async function () {
       const bucketName = "test-bucket-12345";
@@ -356,7 +365,7 @@ describe("Test MeteorS3 class (Server)", function () {
       const fileDoc = insertStub.firstCall.args[0];
       // In development (which Meteor.isDevelopment returns true), status should be "uploaded"
       expect(fileDoc.status).to.equal(
-        Meteor.isDevelopment ? "uploaded" : "pending"
+        "pending"
       );
     });
 

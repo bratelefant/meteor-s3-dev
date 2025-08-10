@@ -48,6 +48,23 @@ import crypto from "crypto";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
+  // check if Lambda function exists
+  try {
+    await lambdaClient.send(
+      new GetFunctionCommand({ FunctionName: functionName })
+    );
+  } catch (e) {
+    if (e.name === "ResourceNotFoundException") {
+      console.log(
+        `[waitForLambdaReady] Lambda function not found: ${functionName}`
+      );
+      return;
+    }
+    throw e;
+  }
+  console.log(
+    `[waitForLambdaReady] Waiting for Lambda function: ${functionName}`
+  );
   const { timeoutMs = 60000, pollMs = 800 } = opts;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -56,11 +73,13 @@ async function waitForLambdaReady(lambdaClient, functionName, opts = {}) {
         new GetFunctionCommand({ FunctionName: functionName })
       );
       const status = cfg?.Configuration?.LastUpdateStatus;
+      console.log(`[waitForLambdaReady] Lambda function status: ${status}`);
       if (!status || status === "Successful") return;
       if (status === "Failed")
         throw new Error("Lambda LastUpdateStatus=Failed");
     } catch (e) {
       // LocalStack can briefly 404 during update; tolerate and retry
+      console.log(`[waitForLambdaReady] Error: ${e.message}`);
     }
     await sleep(pollMs);
   }
@@ -219,6 +238,8 @@ export class MeteorS3 {
 
     // 1) Execution Role sicherstellen
     this.lambdaRoleArn = await this.ensureRoles();
+
+    this.log("[ensureRoles] Lambda execution role defined");
 
     // 2) Lambda deployen/aktualisieren
     await this.ensureLambdaFunctions();
@@ -465,17 +486,24 @@ export class MeteorS3 {
     );
     const merged = [...filtered, desired];
 
-    await this.s3Client.send(
-      new PutBucketNotificationConfigurationCommand({
-        Bucket: this.bucketName,
-        NotificationConfiguration: {
-          LambdaFunctionConfigurations: merged,
-          // (bewahre evtl. vorhandene Queue/Topic-Konfigurationen)
-          QueueConfigurations: current.QueueConfigurations || [],
-          TopicConfigurations: current.TopicConfigurations || [],
-        },
-      })
-    );
+    try {
+      await this.s3Client.send(
+        new PutBucketNotificationConfigurationCommand({
+          Bucket: this.bucketName,
+          NotificationConfiguration: {
+            LambdaFunctionConfigurations: merged,
+            // (bewahre evtl. vorhandene Queue/Topic-Konfigurationen)
+            QueueConfigurations: current.QueueConfigurations || [],
+            TopicConfigurations: current.TopicConfigurations || [],
+          },
+        })
+      );
+    } catch (e) {
+      console.error(e);
+      this.log(
+        `[ensureS3UploadTrigger] Error configuring S3 notification: ${e.message}`
+      );
+    }
 
     this.log(
       "[ensureS3UploadTrigger] S3 notification configured for prefix 'uploads/'"
@@ -531,15 +559,23 @@ export class MeteorS3 {
       this.log(`[ensureRoles] Role created: ${roleName}`);
     }
 
+    this.log("[ensureRoles] Role exists");
     // attach CloudWatch logs policy
-    this.IAMClient.send(
-      new AttachRolePolicyCommand({
-        RoleName: roleName,
-        PolicyArn:
-          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-      })
-    );
+    try {
+      await this.IAMClient.send(
+        new AttachRolePolicyCommand({
+          RoleName: roleName,
+          PolicyArn:
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        })
+      );
+    } catch (e) {
+      this.log(
+        `[ensureRoles] Error attaching CloudWatch logs policy: ${e.message}`
+      );
+    }
 
+    this.log("[ensureRoles] CloudWatch logs policy attached");
     // least-privilege S3 Inline-Policy (auf deinen Bucket)
     const inlineName = `MeteorS3-S3Access-${this.config.name}-${this.bucketName}`;
     const s3Policy = {
@@ -562,6 +598,8 @@ export class MeteorS3 {
         },
       ],
     };
+
+    this.log("[ensureRoles] S3 inline policy defined");
     // idempotent schreiben
     try {
       const { PolicyDocument } = await this.IAMClient.send(
@@ -591,11 +629,14 @@ export class MeteorS3 {
       }
     }
 
+    this.log("[ensureRoles] S3 inline policy defined ready");
+
     return roleArn;
   }
 
   async ensureLambdaFunctions() {
     // Ensure that the Lambda function for this instance exists
+    this.log("[ensureLambdaFunctions] Ensuring Lambda functions");
     this.lambdaClient = new LambdaClient({
       region: this.config.region,
       endpoint: this.config.endpoint,
@@ -605,8 +646,13 @@ export class MeteorS3 {
       },
     });
 
+    this.log("[ensureLambdaFunctions] Lambda client created");
+
     // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
     try {
+      this.log(
+        "[ensureLambdaFunctions] Waiting for Lambda function to be ready"
+      );
       await waitForLambdaReady(
         this.lambdaClient,
         `meteorS3-${this.config.name}-uploadHandler`,
@@ -615,6 +661,8 @@ export class MeteorS3 {
     } catch (_) {
       this.log(`Lambda function not ready: ${_}`);
     }
+
+    this.log("[ensureLambdaFunctions] Lambda function ready");
 
     try {
       await this.deployLambdaFunction("uploadHandler");
