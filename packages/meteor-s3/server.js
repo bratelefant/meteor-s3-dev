@@ -261,7 +261,11 @@ export class MeteorS3 {
       .replace(/--+/g, "-");
 
     const randomSuffix = Random.id(6).toLowerCase();
-    const baseName = `meteor-s3-${slugified}-${randomSuffix}`;
+    // always use the same base name for development, to prevent flooding aws with random buckets
+    const baseName =
+      Meteor.isDevelopment && !Meteor.isTest
+        ? `meteor-s3-${slugified}`
+        : `meteor-s3-${slugified}-${randomSuffix}`;
 
     return baseName.substring(0, 63);
   }
@@ -436,11 +440,29 @@ export class MeteorS3 {
   }
 
   async ensureS3UploadTrigger(functionName) {
-    // 1) Lambda-Invoke durch S3 erlauben
-    const lambdaFn = await this.lambdaClient.send(
+    // 0) Warten bis Lambda wirklich aktiv ist (State=Active + LastUpdateStatus=Successful)
+    const waitReady = async () => {
+      const timeoutMs = 60000;
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const { Configuration: c } = await this.lambdaClient.send(
+          new GetFunctionCommand({ FunctionName: functionName })
+        );
+        const state = c?.State; // "Active" | "Pending" | ...
+        const lus = c?.LastUpdateStatus; // "Successful" | "InProgress" | "Failed"
+        if ((state === "Active" || !state) && (lus === "Successful" || !lus))
+          return;
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      throw new Error(`Lambda ${functionName} not ready for S3 trigger`);
+    };
+    await waitReady();
+
+    // 1) AddPermission für S3 -> Lambda
+    const { Configuration } = await this.lambdaClient.send(
       new GetFunctionCommand({ FunctionName: functionName })
     );
-    const lambdaArn = lambdaFn.Configuration.FunctionArn;
+    const lambdaArn = Configuration.FunctionArn;
 
     try {
       await this.lambdaClient.send(
@@ -454,16 +476,11 @@ export class MeteorS3 {
       );
       this.log(`[ensureS3UploadTrigger] AddPermission ok for ${functionName}`);
     } catch (e) {
-      if (e.name !== "ResourceConflictException") throw e; // bereits vorhanden
+      if (e.name !== "ResourceConflictException") throw e;
       this.log("[ensureS3UploadTrigger] Permission already exists");
     }
 
-    // 2) Bucket-Notification mergen
-    const current = await this.s3Client.send(
-      new GetBucketNotificationConfigurationCommand({ Bucket: this.bucketName })
-    );
-    const existing = current.LambdaFunctionConfigurations || [];
-    // gewünschte Konfiguration
+    // 2) Notification konfigurieren – mit Retry, falls Lambda noch nicht validierbar ist
     const desired = {
       Id: `uploads-${functionName}`.slice(0, 50),
       LambdaFunctionArn: lambdaArn,
@@ -471,35 +488,66 @@ export class MeteorS3 {
       Filter: { Key: { FilterRules: [{ Name: "prefix", Value: "uploads/" }] } },
     };
 
-    // Primitive Merge: ersetze Eintrag mit gleicher ARN+Id
-    const filtered = existing.filter(
-      (c) =>
-        !(
-          c.LambdaFunctionArn === desired.LambdaFunctionArn &&
-          c.Id === desired.Id
-        )
-    );
-    const merged = [...filtered, desired];
+    const putWithRetry = async () => {
+      const max = 8;
+      for (let i = 0; i < max; i++) {
+        const current = await this.s3Client.send(
+          new GetBucketNotificationConfigurationCommand({
+            Bucket: this.bucketName,
+          })
+        );
+        const existing = current.LambdaFunctionConfigurations || [];
+        const filtered = existing.filter(
+          (c) =>
+            !(
+              c.LambdaFunctionArn === desired.LambdaFunctionArn &&
+              c.Id === desired.Id
+            )
+        );
+        const merged = [...filtered, desired];
 
-    try {
-      await this.s3Client.send(
-        new PutBucketNotificationConfigurationCommand({
-          Bucket: this.bucketName,
-          NotificationConfiguration: {
-            LambdaFunctionConfigurations: merged,
-            // (bewahre evtl. vorhandene Queue/Topic-Konfigurationen)
-            QueueConfigurations: current.QueueConfigurations || [],
-            TopicConfigurations: current.TopicConfigurations || [],
-          },
-        })
-      );
-    } catch (e) {
-      console.error(e);
-      this.log(
-        `[ensureS3UploadTrigger] Error configuring S3 notification: ${e.message}`
+        try {
+          await this.s3Client.send(
+            new PutBucketNotificationConfigurationCommand({
+              Bucket: this.bucketName,
+              NotificationConfiguration: {
+                LambdaFunctionConfigurations: merged,
+                QueueConfigurations: current.QueueConfigurations || [],
+                TopicConfigurations: current.TopicConfigurations || [],
+              },
+            })
+          );
+          return;
+        } catch (e) {
+          // InvalidArgument/ResourceConflict -> kurz warten und erneut
+          if (
+            e.name === "InvalidArgument" ||
+            e.name === "ResourceConflictException"
+          ) {
+            await new Promise((r) => setTimeout(r, 1000 * Math.min(1 + i, 5)));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw new Error("Failed to set S3 notification after retries");
+    };
+
+    await putWithRetry();
+
+    // 3) Verifizieren
+    const verify = await this.s3Client.send(
+      new GetBucketNotificationConfigurationCommand({ Bucket: this.bucketName })
+    );
+    const ok = (verify.LambdaFunctionConfigurations || []).some(
+      (c) =>
+        c.LambdaFunctionArn === desired.LambdaFunctionArn && c.Id === desired.Id
+    );
+    if (!ok) {
+      throw new Error(
+        "[ensureS3UploadTrigger] Verification failed – trigger not present"
       );
     }
-
     this.log(
       "[ensureS3UploadTrigger] S3 notification configured for prefix 'uploads/'"
     );

@@ -47,7 +47,6 @@ describe("Test MeteorS3 initialisation (Server)", function () {
         webhookBaseUrl: Meteor.isDevelopment
           ? "http://" + process.env.LOCAL_IP + ":3000"
           : undefined,
-        verbose: true,
       };
       const s3 = new MeteorS3(config);
       sinon.spy(s3, "ensureBucket");
@@ -125,7 +124,6 @@ describe("Test MeteorS3 class (Server)", function () {
         ? "http://" + process.env.LOCAL_IP + ":3000"
         : undefined,
       onCheckPermissions: () => true, // Mock permission check
-      verbose: true,
     };
     s3 = new MeteorS3(config);
 
