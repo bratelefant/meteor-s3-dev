@@ -27,8 +27,12 @@ async function handleFileUpload(event) {
   }
 
   try {
-    const fileId = await s3Client.uploadFile(file, {}, (progress) => {
-      statusDiv.innerHTML = `Uploading... ${progress}%`;
+    const fileId = await s3Client.uploadFile({
+      file,
+      meta: {},
+      onProgress: (progress) => {
+        statusDiv.innerHTML = `Uploading... ${progress}%`;
+      },
     });
 
     // Update UI
@@ -67,7 +71,7 @@ async function handleFileDownload(fileId) {
   statusDiv.style.color = "blue";
 
   try {
-    const downloadUrl = await s3Client.getDownloadUrl(fileId);
+    const downloadUrl = await s3Client.getDownloadUrl({ fileId });
 
     statusDiv.innerHTML = "Opening file in new tab!";
     statusDiv.style.color = "green";
@@ -95,7 +99,7 @@ async function handleFileRemove(fileId) {
   statusDiv.style.color = "blue";
 
   try {
-    await s3Client.removeFile(fileId);
+    await s3Client.removeFile({ fileId });
     statusDiv.innerHTML = "File removed successfully!";
     statusDiv.style.color = "green";
 

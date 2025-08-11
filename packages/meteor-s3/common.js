@@ -1,6 +1,7 @@
 import axios from "axios";
 import { clientConfigSchema } from "./schemas/config";
 import { check, Match } from "meteor/check";
+import { LogClass } from "./logClass";
 
 /**
  * Meteor S3 Client
@@ -9,14 +10,17 @@ import { check, Match } from "meteor/check";
  * It supports uploading files, getting download URLs, downloading files as blobs, and opening files in a new tab.
  * @locus client or server
  */
-export class MeteorS3Client {
+export class MeteorS3Client extends LogClass {
   constructor(config) {
     if (typeof config === "string") {
       // If a string is passed, treat it as the instance name
       config = { name: config, verbose: false };
     }
+
     // Validate the configuration against the client schema
     clientConfigSchema.validate(config);
+    super(config.verbose, "MeteorS3Client::" + config.name);
+    
     this.config = config;
 
     this.log(`Initializing MeteorS3Client for instance: ${this.config.name}`);
@@ -46,14 +50,15 @@ export class MeteorS3Client {
    *
    * Internally, this method calls `getUploadUrl` to obtain a pre-signed URL for uploading the file.
    * After the upload is complete, it calls the server method to handle the post file upload event.
-   * @param {File} file - The file to upload.
-   * @param {Object} [meta={}] - Optional metadata to associate with the file.
-   * @param {Function} [onProgress] - Optional callback to track upload progress.
-   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @param {Object} params - The parameters for the upload.
+   * @param {File} params.file - The file to upload.
+   * @param {Object} [params.meta={}] - Optional metadata to associate with the file.
+   * @param {Function} [params.onProgress] - Optional callback to track upload progress.
+   * @param {Object} [params.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<string>} - The ID of the uploaded file.
    * @throws {Meteor.Error} - If the upload fails.
    */
-  async uploadFile(file, meta = {}, onProgress, context = {}) {
+  async uploadFile({ file, meta = {}, onProgress, context = {} }) {
     check(file, File);
     check(meta, Object);
     check(context, Object);
@@ -85,12 +90,13 @@ export class MeteorS3Client {
 
   /**
    * Gets the pre-signed URL for downloading a file from S3.
-   * @param {string} fileId - The ID of the file to download.
-   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @param {Object} params - The parameters for the download.
+   * @param {string} params.fileId - The ID of the file to download.
+   * @param {Object} [params.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<string>} - The pre-signed URL for downloading the file.
    * @throws {Meteor.Error} - If the download URL cannot be obtained.
    */
-  async getDownloadUrl(fileId, context = {}) {
+  async getDownloadUrl({ fileId, context = {} }) {
     check(fileId, String);
     check(context, Object);
     this.log(`Getting download URL for file ID: ${fileId}`);
@@ -106,12 +112,13 @@ export class MeteorS3Client {
    * You can use this to wait for a file to finish uploading to s3; alternatively, you can check the status reactively
    * by setting up a publication that publishes the files state and subscribe to it in the client.
    *
-   * @param {string} fileId - The ID of the file to get metadata for.
-   * @param {Object} [context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
+   * @param {Object} params - The parameters for the metadata retrieval.
+   * @param {string} params.fileId - The ID of the file to get metadata for.
+   * @param {Object} [params.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<Object>} - The metadata of the file, for instance the file size and MIME type and s3 status (pending or uploaded)
    * @throws {Meteor.Error} - If the metadata cannot be obtained.
    */
-  async head(fileId, context = {}) {
+  async head({ fileId, context = {} }) {
     check(fileId, String);
     check(context, Object);
     this.log(`Getting HEAD for file ID: ${fileId}`);
@@ -125,15 +132,17 @@ export class MeteorS3Client {
    * Downloads a file from S3 as a blob.
    * If called on the server, you get the contents, on the client, this returns a `Blob` object, so
    * you need to call the `.text()` method if the file is a text file, for example
-   * @param {string} fileId - The ID of the file to download.
+   * @param {Object} params - The parameters for the download.
+   * @param {string} params.fileId - The ID of the file to download.
+   * @param {Object} [params.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @returns {Promise<Blob>} - The downloaded file as a Blob.
    * @throws {Meteor.Error} - If the download fails.
    */
-  async downloadFile(fileId, context = {}) {
+  async downloadFile({ fileId, context = {} }) {
     check(fileId, String);
     check(context, Object);
     this.log(`Downloading file with ID: ${fileId}`);
-    const url = await this.getDownloadUrl(fileId, context);
+    const url = await this.getDownloadUrl({ fileId, context });
     const res = await axios.get(url, {
       responseType: "blob", // Set response type to blob for file download
     });
@@ -149,10 +158,12 @@ export class MeteorS3Client {
 
   /**
    * Removes a file from S3.
-   * @param {string} fileId - The ID of the file to remove.
+   * @param {Object} params - The parameters for the file removal.
+   * @param {string} params.fileId - The ID of the file to remove.
+   * @param {Object} [params.context={}] - Optional context object, can contain data for permission checks on the server side via onCheckPermissions-Hook.
    * @throws {Meteor.Error} - If the file cannot be removed.
    */
-  async removeFile(fileId, context = {}) {
+  async removeFile({ fileId, context = {} }) {
     check(fileId, String);
     check(context, Object);
     this.log(`Removing file with ID: ${fileId}`);
@@ -167,17 +178,6 @@ export class MeteorS3Client {
         "file-remove-failed",
         `Failed to remove file: ${error.message}`
       );
-    }
-  }
-
-  /**
-   * Log messages if verbose mode is enabled.
-   * @param {...any} args - The arguments to log.
-   */
-  log(...args) {
-    if (this.config.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(`MeteorS3::[${this.config.name}]`, ...args);
     }
   }
 }

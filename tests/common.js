@@ -60,9 +60,13 @@ describe("Test MeteorS3Client (isomorphic)", function () {
 
       sinon.spy(MeteorS3Client, "uploadFileWithProgress");
 
-      const fileId = await s3.uploadFile(file, {}, (progress) => {
-        // Simulate progress callback
-        expect(progress).to.be.a("number");
+      const fileId = await s3.uploadFile({
+        file,
+        meta: {},
+        onProgress: (progress) => {
+          // Simulate progress callback
+          expect(progress).to.be.a("number");
+        },
       });
 
       expect(fileId).to.equal("12345");
@@ -86,8 +90,12 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       sinon.stub(Meteor, "callAsync").rejects(new Error("Upload failed"));
 
       try {
-        await s3.uploadFile(file, {}, (progress) => {
-          expect(progress).to.be.a("number");
+        await s3.uploadFile({
+          file,
+          meta: {},
+          onProgress: (progress) => {
+            expect(progress).to.be.a("number");
+          },
         });
       } catch (error) {
         expect(error.message).to.equal("Upload failed");
@@ -100,8 +108,12 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
 
       try {
-        await s3.uploadFile(null, {}, (progress) => {
-          expect(progress).to.be.a("number");
+        await s3.uploadFile({
+          file: null,
+          meta: {},
+          onProgress: (progress) => {
+            expect(progress).to.be.a("number");
+          },
         });
       } catch (error) {
         expect(error.message).to.equal("Match error: Expected File");
@@ -121,7 +133,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         fileId: "12345",
       });
 
-      const result = await s3.getDownloadUrl(fileId);
+      const result = await s3.getDownloadUrl({ fileId });
 
       expect(result).to.deep.equal({
         url: "http://localhost:3000/download/12345",
@@ -148,7 +160,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         .rejects(new Error("File not found"));
 
       try {
-        await s3.getDownloadUrl(fileId);
+        await s3.getDownloadUrl({ fileId });
       } catch (error) {
         expect(error.message).to.equal("File not found");
       } finally {
@@ -160,7 +172,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
 
       try {
-        await s3.getDownloadUrl(null);
+        await s3.getDownloadUrl({ fileId: null });
       } catch (error) {
         expect(error.message).to.equal(
           "Match error: Expected string, got null"
@@ -183,7 +195,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         status: "uploaded",
       });
 
-      const result = await s3.head(fileId);
+      const result = await s3.head({ fileId });
 
       expect(result).to.deep.equal({
         fileId: "12345",
@@ -203,7 +215,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
 
       try {
-        await s3.head(null);
+        await s3.head({ fileId: null });
       } catch (error) {
         expect(error.message).to.equal(
           "Match error: Expected string, got null"
@@ -222,7 +234,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         .rejects(new Error("File not found"));
 
       try {
-        await s3.head(fileId);
+        await s3.head({ fileId });
       } catch (error) {
         expect(error.message).to.equal("File not found");
       } finally {
@@ -240,7 +252,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       const callStub = sinon.stub(Meteor, "callAsync");
       callStub.withArgs("meteorS3.testBucket.removeFile").resolves();
 
-      await s3.removeFile(fileId);
+      await s3.removeFile({ fileId });
 
       expect(callStub.calledOnce).to.be.true;
       expect(callStub.firstCall.args[0]).to.equal(
@@ -263,7 +275,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         .rejects(new Error("File not found"));
 
       try {
-        await s3.removeFile(fileId);
+        await s3.removeFile({ fileId });
       } catch (error) {
         expect(error.message).to.equal(
           "Failed to remove file: File not found [file-remove-failed]"
@@ -277,7 +289,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       const s3 = new MeteorS3Client({ name: "testBucket" });
 
       try {
-        await s3.removeFile(null);
+        await s3.removeFile({ fileId: null });
       } catch (error) {
         expect(error.message).to.equal(
           "Match error: Expected string, got null"

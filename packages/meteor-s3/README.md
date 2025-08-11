@@ -58,16 +58,16 @@ const testFile = new File(["Hello World"], "test.txt", {
 });
 
 // Uplaod a file with metadata and log the progress
-const fileId = await s3Client.uploadFile(
-  testFile,
-  { test: true },
-  (progress) => {
+const fileId = await s3Client.uploadFile({
+  file: testFile,
+  meta: { test: true },
+  onProgress: (progress) => {
     console.log(`Upload progress: ${progress}%`);
-  }
-);
+  },
+});
 
 // Download a file
-const blob = await s3Client.downloadFile(fileId);
+const blob = await s3Client.downloadFile({ fileId });
 ```
 
 ### Required policy
@@ -173,5 +173,114 @@ s3.onCheckPermissions = (fileDoc, action, userId, context) => {
     return userId === fileDoc.ownerId;
   }
   return false; // Deny other actions by default
+};
+```
+
+## Examples
+
+### Profile Pictures
+
+On the server side, so something like this.
+
+```js
+import { MeteorS3 } from "meteor/bratelefant:meteor-s3/server";
+
+export const s3UserFiles = new MeteorS3({
+  accessKeyId: "test",
+  secretAccessKey: "test",
+  name: "profilePictures",
+  onCheckPermissions: (fileDoc, action, userId, context) => {
+    if (action === "upload") {
+      // Allow upload if the user is logged in
+      return !!userId;
+    } else if (action === "download" || action === "remove") {
+      // Allow download and remove if the user is logged in and the file belongs to them
+      return !!userId && fileDoc.ownerId === userId;
+    }
+    return false; // Default to no permission
+  },
+  onGetKey: (fileInfos, userId) => {
+    // Store files in the bucket in a subfolder for each userId
+    return `users/${userId}/${Random.id(16)}_${fileInfos.filename}`;
+  },
+  onAfterUpload: async (fileDoc) => {
+    // After the upload has finished and after the lambda function has reported
+    // the s3 status to be "uploaded", set the users profile picture
+    await Meteor.users.updateAsync(fileDoc.ownerId, {
+      $set: {
+        "profile.pictureFileId": fileDoc._id,
+      },
+    });
+  },
+});
+
+Meteor.startup(() => {
+  s3UserFiles.init();
+});
+```
+
+On the client (browser) you can manage the upload and download of the profile picture like so (this is react):
+
+```js
+import React, { useEffect, useState } from "react";
+import { MeteorS3Client } from "meteor/bratelefant:meteor-s3/common";
+
+export const ProfilePicture = () => {
+  // Init MeteorS3 client with exactly the same name as the server instance
+  const s3 = new MeteorS3Client("profilePictures");
+
+  const [profileUrl, setProfileUrl] = useState();
+  const [avatarLoading, setAvatarLoading] = useState(false);
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    // upload the file, thats all you have to do
+    await s3.uploadFile({
+      file,
+      onProgress: (progress) => {
+        console.log("Uploading...", progress);
+      },
+    });
+  };
+
+  useEffect(() => {
+    (async () => {
+      /*
+       * The `onAfterUpload` hook on the server side will make sure,
+       * that the `profile.pictureFileId` is set, as soon as the file
+       * is reported to be uploaded to s3.
+       * Since `Meteor.user()?.profile` is reactive, the ui will update
+       * automatically after the upload has finished
+       */
+      if (Meteor.user()?.profile?.pictureFileId) {
+        setAvatarLoading(true);
+        setProfileUrl(
+          await s3.getDownloadUrl({
+            fileId: Meteor.user().profile.pictureFileId,
+          })
+        );
+        setAvatarLoading(false);
+      }
+    })();
+  }, [Meteor.user()?.profile?.pictureFileId]);
+
+  return (
+    <div>
+      <div>
+        {avatarLoading ? (
+          <div>Loading...</div>
+        ) : (
+          <img
+            style={{ maxWidth: 120, maxHeight: 120 }}
+            src={profileUrl}
+            alt="Profile Picture"
+          />
+        )}
+      </div>
+      <div>
+        <input onChange={handleFileUpload} type="file"></input>
+      </div>
+    </div>
+  );
 };
 ```

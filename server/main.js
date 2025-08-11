@@ -63,14 +63,14 @@ async function runTests() {
     const testFile = new File(["Hello World"], "test.txt", {
       type: "text/plain",
     });
-    fileId = await s3Client.uploadFile(
-      testFile,
-      { path: "testpath", test: true },
-      (progress) => {
+    fileId = await s3Client.uploadFile({
+      file: testFile,
+      meta: { path: "testpath", test: true },
+      onProgress: (progress) => {
         // eslint-disable-next-line no-console
         console.log(`Upload progress: ${progress}%`);
-      }
-    );
+      },
+    });
     // eslint-disable-next-line no-console
     console.log(`Test file uploaded successfully with ID: ${fileId}`);
   } catch (error) {
@@ -80,7 +80,7 @@ async function runTests() {
   let ready = false;
   while (!ready) {
     // Check the status of the upload
-    const fileDoc = await s3Client.head(fileId);
+    const fileDoc = await s3Client.head({ fileId });
     if (fileDoc && fileDoc.status === "uploaded") {
       ready = true;
     } else {
@@ -91,7 +91,7 @@ async function runTests() {
 
   // Download the file to verify the upload
   try {
-    const blob = await s3Client.downloadFile(fileId);
+    const blob = await s3Client.downloadFile({ fileId });
     // eslint-disable-next-line no-console
     console.log(
       `Test file downloaded successfully: ${blob.size} bytes, contents:`,
