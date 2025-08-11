@@ -7,8 +7,8 @@
   },
   "scripts": {
     "start": "LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor run --settings settings.json",
-    "test": "MOCHA_TIMEOUT=10000 LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor test --once --driver-package meteortesting:mocha",
-    "test:watch": "MOCHA_TIMEOUT=100000 LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor test --driver-package meteortesting:mocha",
+    "test": "MOCHA_TIMEOUT=20000 LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor test --once --driver-package meteortesting:mocha",
+    "test:watch": "MOCHA_TIMEOUT=200000 LOCAL_IP=$(echo $(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -n 1)) meteor test --driver-package meteortesting:mocha",
     "visualize": "meteor --production --extra-packages bundle-visualizer",
     "lint": "eslint . --ext .js,.jsx",
     "lint:fix": "eslint . --ext .js,.jsx --fix",

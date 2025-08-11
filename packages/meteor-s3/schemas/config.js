@@ -72,6 +72,16 @@ export const configSchema = new SimpleSchema({
    * ${Random.id()}-${fileInfos.filename}
    * ```.
    */
+  onBeforeUpload: {
+    type: Function,
+    label: "Custom function to be called before a file is uploaded.",
+    optional: true,
+  },
+  onAfterUpload: {
+    type: Function,
+    label: "Custom function to be called after a file is uploaded.",
+    optional: true,
+  },
   onGetKey: {
     type: Function,
     label: "Custom key generation function.",
