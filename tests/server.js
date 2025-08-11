@@ -197,7 +197,7 @@ describe("Test MeteorS3 class (Server)", function () {
       // test request handling
 
       const result = await fetch(
-        Meteor.absoluteUrl("/api/" + s3.config.name + "/confirm"),
+        Meteor.absoluteUrl("/meteor-s3-api/" + s3.config.name + "/confirm"),
         {
           method: "POST",
           headers: {

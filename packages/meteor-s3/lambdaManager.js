@@ -120,7 +120,7 @@ export class LambdaManager extends LogClass {
       );
       await waitForLambdaReady(
         this.lambdaClient,
-        `meteorS3-${this.meteorS3.name}-uploadHandler`,
+        `meteorS3-${this.meteorS3.config.name}-uploadHandler`,
         { timeoutMs: 15000, pollMs: 700 }
       );
     } catch (_) {
@@ -132,7 +132,7 @@ export class LambdaManager extends LogClass {
     try {
       await this.deployLambdaFunction("uploadHandler");
       this.log(
-        `Lambda function for instance ${this.meteorS3.name} deployed successfully.`
+        `Lambda function for instance ${this.meteorS3.config.name} deployed successfully.`
       );
     } catch (error) {
       console.error("Error deploying Lambda function:", error);
@@ -154,18 +154,19 @@ export class LambdaManager extends LogClass {
     // Prefer an explicit config override, else use host.docker.internal for local endpoints.
     const defaultBase = Meteor.absoluteUrl().replace(/\/$/, "");
     const isLocalEndpoint = !!(
-      this.meteorS3.endpoint && this.meteorS3.endpoint.includes("localhost")
+      this.meteorS3.config.endpoint &&
+      this.meteorS3.config.endpoint.includes("localhost")
     );
-    const webhookBase = this.meteorS3.webhookBaseUrl
-      ? this.meteorS3.webhookBaseUrl.replace(/\/$/, "")
+    const webhookBase = this.meteorS3.config.webhookBaseUrl
+      ? this.meteorS3.config.webhookBaseUrl.replace(/\/$/, "")
       : isLocalEndpoint
         ? `http://host.docker.internal:${process.env.PORT || 3000}`
         : defaultBase;
 
-    const webhookUrl = `${webhookBase}/api/${encodeURIComponent(this.meteorS3.name)}/confirm`;
+    const webhookUrl = `${webhookBase}/meteor-s3-api/${encodeURIComponent(this.meteorS3.config.name)}/confirm`;
 
     const manifestString = renderTemplate(manifestTemplate, {
-      INSTANCE: this.meteorS3.name,
+      INSTANCE: this.meteorS3.config.name,
       WEBHOOK_URL: webhookUrl,
       ROLE_ARN: this.meteorS3.IAMManager.lambdaRoleArn,
     });
@@ -221,7 +222,7 @@ export class LambdaManager extends LogClass {
           Variables: {
             WEBHOOK_URL: webhookUrl,
             BUCKET: this.meteorS3.bucketName,
-            INSTANCE: this.meteorS3.name,
+            INSTANCE: this.meteorS3.config.name,
           },
         },
       };
@@ -263,7 +264,7 @@ export class LambdaManager extends LogClass {
       const desiredEnv = {
         WEBHOOK_URL: webhookUrl,
         BUCKET: this.meteorS3.bucketName,
-        INSTANCE: this.meteorS3.name,
+        INSTANCE: this.meteorS3.config.name,
       };
 
       const currentEnv = currentCfg.Environment?.Variables || {};

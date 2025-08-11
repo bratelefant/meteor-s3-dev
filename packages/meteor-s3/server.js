@@ -390,7 +390,7 @@ export class MeteorS3 extends LogClass {
    */
   async ensureEndpoints() {
     WebApp.handlers.post(
-      "/api/" + encodeURIComponent(this.config.name) + "/confirm",
+      "/meteor-s3-api/" + encodeURIComponent(this.config.name) + "/confirm",
       bodyParser.json(),
       async (req, res) => {
         this.log("Webhook triggered");

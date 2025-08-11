@@ -4,9 +4,9 @@ export class LogClass {
     this.prefix = prefix;
   }
 
-  log(message) {
+  log(...args) {
     if (!this.verbose) return;
     // eslint-disable-next-line no-console
-    console.log(`[${this.prefix}] ${message}`);
+    console.log(`[${this.prefix}]`, ...args);
   }
 }
