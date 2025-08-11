@@ -20,7 +20,7 @@ export class MeteorS3Client extends LogClass {
     // Validate the configuration against the client schema
     clientConfigSchema.validate(config);
     super(config.verbose, "MeteorS3Client::" + config.name);
-    
+
     this.config = config;
 
     this.log(`Initializing MeteorS3Client for instance: ${this.config.name}`);
