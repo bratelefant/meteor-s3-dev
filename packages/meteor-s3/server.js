@@ -75,8 +75,8 @@ export class MeteorS3 extends LogClass {
       console.error("Failed to create index on meteor_s3_files collection:", e);
     });
     // Initialize empty hooks. Override these in your app to add custom behavior.
-    this.onBeforeUpload = this.config.onBeforeUpload || (async (_fileDoc) => {});
-    this.onAfterUpload = this.config.onAfterUpload || (async (_fileDoc) => {});
+    this.onBeforeUpload = config.onBeforeUpload || (async (_fileDoc) => {});
+    this.onAfterUpload = config.onAfterUpload || (async (_fileDoc) => {});
 
     // actions are "upload", "download" or "delete"
     this.onCheckPermissions =
