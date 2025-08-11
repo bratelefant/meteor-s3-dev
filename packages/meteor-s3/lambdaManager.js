@@ -87,7 +87,10 @@ async function withLambdaUpdateRetry(
 
 export class LambdaManager extends LogClass {
   constructor(meteorS3Instance) {
-    super(meteorS3Instance.config.verbose, "LambdaManager::" + meteorS3Instance.config.name);
+    super(
+      meteorS3Instance.config.verbose,
+      "LambdaManager::" + meteorS3Instance.config.name
+    );
     this.meteorS3 = meteorS3Instance;
 
     this.lambdaClient = new LambdaClient({

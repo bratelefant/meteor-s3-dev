@@ -19,6 +19,7 @@ import { MeteorS3FilesSchema } from "./schemas/files";
 import bodyParser from "body-parser";
 import { IAMManager } from "./iamManager";
 import { LambdaManager } from "./lambdaManager";
+import { LogClass } from "./logClass";
 
 const publicFileFields = {
   _id: 1,
@@ -34,14 +35,15 @@ const publicFileFields = {
  * Each instance must have a unique name, so you can have multiple instances of MeteorS3 in your application.
  * @locus server
  */
-export class MeteorS3 {
+export class MeteorS3 extends LogClass {
   constructor(config) {
-    // check if the config is valid and set it
+    super(config.verbose, "MeteorS3::" + config.name);
 
     const cleanedConfig = configSchema.clean(config);
     configSchema.validate(cleanedConfig);
 
     this.config = cleanedConfig;
+    // check if the config is valid and set it
 
     // State and meta infos about Files of this instance are stored here
     this.files =
@@ -735,16 +737,5 @@ export class MeteorS3 {
     }
     // Default implementation always denies access
     return this.onCheckPermissions(fileDoc, action, userId, context);
-  }
-
-  /**
-   * Log messages if verbose mode is enabled.
-   * @param {...any} args - The arguments to log.
-   */
-  log(...args) {
-    if (this.config.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(`MeteorS3::[${this.config.name}]`, ...args);
-    }
   }
 }

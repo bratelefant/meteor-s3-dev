@@ -6,6 +6,7 @@ export class LogClass {
 
   log(message) {
     if (!this.verbose) return;
+    // eslint-disable-next-line no-console
     console.log(`[${this.prefix}] ${message}`);
   }
 }
