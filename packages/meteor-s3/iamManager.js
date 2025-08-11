@@ -7,17 +7,22 @@ import {
   PutRolePolicyCommand,
   GetRolePolicyCommand,
 } from "@aws-sdk/client-iam";
+import { LogClass } from "./logClass";
 
-export class IAMManager {
-  constructor(config) {
-    this.config = config;
+export class IAMManager extends LogClass {
+  constructor(meteorS3Instance) {
+    super(
+      meteorS3Instance.config.verbose,
+      "IAMManager::" + meteorS3Instance.config.name
+    );
+    this.meteorS3 = meteorS3Instance;
     this.IAMClient = new IAMClient({
-      region: this.config.region,
+      region: this.meteorS3.config.region,
       credentials: {
-        accessKeyId: this.config.accessKeyId,
-        secretAccessKey: this.config.secretAccessKey,
+        accessKeyId: this.meteorS3.config.accessKeyId,
+        secretAccessKey: this.meteorS3.config.secretAccessKey,
       },
-      endpoint: this.config.endpoint, // optional (LocalStack)
+      endpoint: this.meteorS3.config.endpoint, // optional (LocalStack)
     });
   }
 
@@ -26,7 +31,7 @@ export class IAMManager {
   }
 
   async ensureLambdaExecRole() {
-    const roleName = `MeteorS3LambdaExecRole-${this.config.name}`;
+    const roleName = `MeteorS3LambdaExecRole-${this.meteorS3.config.name}`;
     const trustPolicy = {
       Version: "2012-10-17",
       Statement: [
@@ -58,7 +63,7 @@ export class IAMManager {
         new CreateRoleCommand({
           RoleName: roleName,
           AssumeRolePolicyDocument: JSON.stringify(trustPolicy),
-          Description: `Execution role for MeteorS3 (${this.config.name})`,
+          Description: `Execution role for MeteorS3 (${this.meteorS3.config.name})`,
         })
       );
       roleArn = Role.Arn;
@@ -83,7 +88,7 @@ export class IAMManager {
 
     this.log("[ensureRoles] CloudWatch logs policy attached");
     // least-privilege S3 Inline-Policy (auf deinen Bucket)
-    const inlineName = `MeteorS3-S3Access-${this.config.name}-${this.bucketName}`;
+    const inlineName = `MeteorS3-S3Access-${this.meteorS3.config.name}-${this.meteorS3.bucketName}`;
     const s3Policy = {
       Version: "2012-10-17",
       Statement: [
@@ -95,12 +100,12 @@ export class IAMManager {
             "s3:HeadObject",
             "s3:DeleteObject",
           ],
-          Resource: `arn:aws:s3:::${this.bucketName}/*`,
+          Resource: `arn:aws:s3:::${this.meteorS3.bucketName}/*`,
         },
         {
           Effect: "Allow",
           Action: ["s3:ListBucket"],
-          Resource: `arn:aws:s3:::${this.bucketName}`,
+          Resource: `arn:aws:s3:::${this.meteorS3.bucketName}`,
         },
       ],
     };
@@ -138,16 +143,5 @@ export class IAMManager {
     this.log("[ensureRoles] S3 inline policy defined ready");
 
     this.lambdaRoleArn = roleArn;
-  }
-
-  /**
-   * Log messages if verbose mode is enabled.
-   * @param {...any} args - The arguments to log.
-   */
-  log(...args) {
-    if (this.config.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(`IamManager::[${this.config.name}]`, ...args);
-    }
   }
 }
