@@ -40,7 +40,42 @@ export class MeteorS3Client {
       },
     });
   }
-  ƒ;
+
+  /**
+   * Gets a pre-signed URL for uploading a file to S3.
+   * @param {Object} param0
+   * @param {string} param0.name - The name of the file.
+   * @param {number} param0.size - The size of the file.
+   * @param {string} param0.type - The MIME type of the file.
+   * @param {Object} [param0.meta={}] - Optional metadata to associate with the file.
+   * @param {Object} [param0.context={}] - Optional context object for permission checks.
+   * @returns {Promise<Object>} - Object { url, fileId } containing the pre-signed URL and file ID.
+   */
+  async getUploadUrl({ name, size, type, meta = {}, context = {} }) {
+    if (typeof name !== "string") {
+      throw new Meteor.Error("invalid-name", "Invalid file name");
+    }
+    if (typeof size !== "number") {
+      throw new Meteor.Error("invalid-size", "Invalid file size");
+    }
+    if (typeof type !== "string") {
+      throw new Meteor.Error("invalid-type", "Invalid file type");
+    }
+    if (typeof meta !== "object") {
+      throw new Meteor.Error("invalid-meta", "Invalid meta object");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
+    this.log(`Getting upload URL for file: ${name}`);
+    return await Meteor.callAsync(`meteorS3.${this.config.name}.getUploadUrl`, {
+      name,
+      size,
+      type,
+      meta,
+      context,
+    });
+  }
 
   /**
    * Uploads a file to S3.
@@ -73,10 +108,13 @@ export class MeteorS3Client {
     }
     this.log(`Uploading file: ${file.name} (${file.size} bytes)`);
 
-    const { url, fileId } = await Meteor.callAsync(
-      `meteorS3.${this.config.name}.getUploadUrl`,
-      { name: file.name, size: file.size, type: file.type, meta, context }
-    );
+    const { url, fileId } = await this.getUploadUrl({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      meta,
+      context,
+    });
 
     this.log(
       `Start uploading file to S3: ${file.name} (${file.size} bytes) using URL: ${url}`

@@ -44,6 +44,72 @@ describe("Test MeteorS3Client (isomorphic)", function () {
     });
   });
 
+  describe("getUploadUrl", function () {
+    it("should return a pre-signed URL and file ID", async function () {
+      const s3 = new MeteorS3Client({ name: "testBucket" });
+      const file = new File(["test"], "test.txt", { type: "text/plain" });
+      const callStub = sinon.stub(Meteor, "callAsync");
+      callStub.withArgs("meteorS3.testBucket.getUploadUrl").resolves({
+        url: "http://localhost:3000/upload",
+        fileId: "12345",
+      });
+
+      const result = await s3.getUploadUrl({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+
+      expect(callStub.calledOnce).to.be.true;
+      expect(callStub.firstCall.args[0]).to.equal(
+        "meteorS3.testBucket.getUploadUrl"
+      );
+      expect(callStub.firstCall.args[1]).to.deep.include({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+      expect(result).to.have.property("url");
+      expect(result).to.have.property("fileId");
+    });
+
+    it("should fail if arguments are not correct", async function () {
+      const s3 = new MeteorS3Client({ name: "testBucket" });
+
+      try {
+        await s3.getUploadUrl({
+          name: null,
+          size: 0,
+          type: "text/plain",
+        });
+      } catch (error) {
+        expect(error.message).to.equal("Invalid file name [invalid-name]");
+      }
+    });
+
+    it("should handle errors gracefully", async function () {
+      const s3 = new MeteorS3Client({ name: "testBucket" });
+
+      // Mock the Meteor.callAsync method
+      const callStub = sinon.stub(Meteor, "callAsync");
+      callStub
+        .withArgs("meteorS3.testBucket.getUploadUrl")
+        .rejects(new Error("Network error"));
+
+      try {
+        await s3.getUploadUrl({
+          name: "test.txt",
+          size: 1024,
+          type: "text/plain",
+        });
+      } catch (error) {
+        expect(error.message).to.equal("Network error");
+      } finally {
+        callStub.restore();
+      }
+    });
+  });
+
   describe("uploadFile", function () {
     it("should upload a file and return the file ID", async function () {
       const file = new File(["test"], "test.txt", { type: "text/plain" });
@@ -174,9 +240,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       try {
         await s3.getDownloadUrl({ fileId: null });
       } catch (error) {
-        expect(error.message).to.equal(
-          "Invalid file ID [invalid-fileId]"
-        );
+        expect(error.message).to.equal("Invalid file ID [invalid-fileId]");
       }
     });
   });
@@ -217,9 +281,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       try {
         await s3.head({ fileId: null });
       } catch (error) {
-        expect(error.message).to.equal(
-          "Invalid file ID [invalid-fileId]"
-        );
+        expect(error.message).to.equal("Invalid file ID [invalid-fileId]");
       }
     });
 
