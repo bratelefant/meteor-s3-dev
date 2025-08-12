@@ -116,7 +116,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
           },
         });
       } catch (error) {
-        expect(error.message).to.equal("Match error: Expected File");
+        expect(error.message).to.equal("Invalid file object [invalid-file]");
       }
     });
   });
@@ -175,7 +175,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         await s3.getDownloadUrl({ fileId: null });
       } catch (error) {
         expect(error.message).to.equal(
-          "Match error: Expected string, got null"
+          "Invalid file ID [invalid-fileId]"
         );
       }
     });
@@ -218,7 +218,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
         await s3.head({ fileId: null });
       } catch (error) {
         expect(error.message).to.equal(
-          "Match error: Expected string, got null"
+          "Invalid file ID [invalid-fileId]"
         );
       }
     });
@@ -291,9 +291,7 @@ describe("Test MeteorS3Client (isomorphic)", function () {
       try {
         await s3.removeFile({ fileId: null });
       } catch (error) {
-        expect(error.message).to.equal(
-          "Match error: Expected string, got null"
-        );
+        expect(error.message).to.equal("Invalid file ID [invalid-fileId]");
       }
     });
   });

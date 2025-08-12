@@ -98,17 +98,3 @@ export const configSchema = new SimpleSchema({
     optional: true,
   },
 });
-
-export const clientConfigSchema = new SimpleSchema({
-  name: {
-    type: String,
-    label: "Unique MeteorS3 Instance Name",
-    optional: false,
-  },
-  verbose: {
-    type: Boolean,
-    label: "Enable verbose logging",
-    optional: true,
-    defaultValue: false,
-  },
-});

@@ -1,7 +1,4 @@
 import axios from "axios";
-import { clientConfigSchema } from "./schemas/config";
-import { check, Match } from "meteor/check";
-import { LogClass } from "./logClass";
 
 /**
  * Meteor S3 Client
@@ -10,7 +7,7 @@ import { LogClass } from "./logClass";
  * It supports uploading files, getting download URLs, downloading files as blobs, and opening files in a new tab.
  * @locus client or server
  */
-export class MeteorS3Client extends LogClass {
+export class MeteorS3Client {
   constructor(config) {
     if (typeof config === "string") {
       // If a string is passed, treat it as the instance name
@@ -18,9 +15,9 @@ export class MeteorS3Client extends LogClass {
     }
 
     // Validate the configuration against the client schema
-    clientConfigSchema.validate(config);
-    super(config.verbose, "MeteorS3Client::" + config.name);
-
+    if (!config.name || typeof config.name !== "string") {
+      throw new Meteor.Error("invalid-config", "Invalid configuration object");
+    }
     this.config = config;
 
     this.log(`Initializing MeteorS3Client for instance: ${this.config.name}`);
@@ -59,10 +56,21 @@ export class MeteorS3Client extends LogClass {
    * @throws {Meteor.Error} - If the upload fails.
    */
   async uploadFile({ file, meta = {}, onProgress, context = {} }) {
-    check(file, File);
-    check(meta, Object);
-    check(context, Object);
-    check(onProgress, Match.Maybe(Function));
+    if (typeof file !== "object" || !(file instanceof File)) {
+      throw new Meteor.Error("invalid-file", "Invalid file object");
+    }
+    if (typeof meta !== "object") {
+      throw new Meteor.Error("invalid-meta", "Invalid meta object");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
+    if (onProgress && typeof onProgress !== "function") {
+      throw new Meteor.Error(
+        "invalid-onProgress",
+        "Invalid onProgress callback"
+      );
+    }
     this.log(`Uploading file: ${file.name} (${file.size} bytes)`);
 
     const { url, fileId } = await Meteor.callAsync(
@@ -97,8 +105,12 @@ export class MeteorS3Client extends LogClass {
    * @throws {Meteor.Error} - If the download URL cannot be obtained.
    */
   async getDownloadUrl({ fileId, context = {} }) {
-    check(fileId, String);
-    check(context, Object);
+    if (typeof fileId !== "string") {
+      throw new Meteor.Error("invalid-fileId", "Invalid file ID");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
     this.log(`Getting download URL for file ID: ${fileId}`);
     return await Meteor.callAsync(
       `meteorS3.${this.config.name}.getDownloadUrl`,
@@ -119,8 +131,12 @@ export class MeteorS3Client extends LogClass {
    * @throws {Meteor.Error} - If the metadata cannot be obtained.
    */
   async head({ fileId, context = {} }) {
-    check(fileId, String);
-    check(context, Object);
+    if (typeof fileId !== "string") {
+      throw new Meteor.Error("invalid-fileId", "Invalid file ID");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
     this.log(`Getting HEAD for file ID: ${fileId}`);
     return await Meteor.callAsync(`meteorS3.${this.config.name}.head`, {
       fileId,
@@ -139,8 +155,12 @@ export class MeteorS3Client extends LogClass {
    * @throws {Meteor.Error} - If the download fails.
    */
   async downloadFile({ fileId, context = {} }) {
-    check(fileId, String);
-    check(context, Object);
+    if (typeof fileId !== "string") {
+      throw new Meteor.Error("invalid-fileId", "Invalid file ID");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
     this.log(`Downloading file with ID: ${fileId}`);
     const url = await this.getDownloadUrl({ fileId, context });
     const res = await axios.get(url, {
@@ -164,8 +184,12 @@ export class MeteorS3Client extends LogClass {
    * @throws {Meteor.Error} - If the file cannot be removed.
    */
   async removeFile({ fileId, context = {} }) {
-    check(fileId, String);
-    check(context, Object);
+    if (typeof fileId !== "string") {
+      throw new Meteor.Error("invalid-fileId", "Invalid file ID");
+    }
+    if (typeof context !== "object") {
+      throw new Meteor.Error("invalid-context", "Invalid context object");
+    }
     this.log(`Removing file with ID: ${fileId}`);
     try {
       await Meteor.callAsync(`meteorS3.${this.config.name}.removeFile`, {
@@ -178,6 +202,17 @@ export class MeteorS3Client extends LogClass {
         "file-remove-failed",
         `Failed to remove file: ${error.message}`
       );
+    }
+  }
+
+  /**
+   * Log messages if verbose mode is enabled.
+   * @param {...any} args - The arguments to log.
+   */
+  log(...args) {
+    if (this.config.verbose) {
+      // eslint-disable-next-line no-console
+      console.log(`MeteorS3::[${this.config.name}]`, ...args);
     }
   }
 }
