@@ -184,9 +184,10 @@ export class MeteorS3 extends LogClass {
 
   /**
    * Ensure that the bucket for this instance exists.
-   * If it does not exist, it will be created.
-   * If it exists, it will be registered in the database.
-   * This will also set this.bucketName properties.
+   * The truth is in the db, i.e. at first we ensure the
+   * bucket exists in the database.
+   * Then, we check if it exists in S3.
+   * If not, it will be created.
    * @returns {Promise<void>}
    */
   async ensureBucket() {
@@ -194,33 +195,8 @@ export class MeteorS3 extends LogClass {
       instanceName: this.config.name,
     });
 
-    if (existingBucket) {
-      this.bucketName = existingBucket.bucketName;
-      this.log(`Using existing bucket: ${this.bucketName}`);
-      // Check if the bucket exists in S3
-      try {
-        await this.s3Client.send(
-          new HeadBucketCommand({ Bucket: this.bucketName })
-        );
-        this.log(`Bucket ${this.bucketName} exists in S3.`);
-      } catch (error) {
-        console.error("S3 HeadBucket error:", error);
-        throw new Meteor.Error(
-          "s3-bucket-access",
-          `Failed to access S3 bucket: ${error.name}`,
-          error
-        );
-      }
-      // Ensure the bucket's region matches the configured region
-      if (existingBucket.region !== this.config.region) {
-        console.warn(
-          `Bucket region mismatch: expected ${this.config.region}, found ${existingBucket.region}.`
-        );
-        // Optionally, you could handle this case by updating the bucket's region or throwing an error.
-      }
-      this.log(`Bucket ${this.bucketName} is ready for use.`);
-      return;
-    } else {
+    if (!existingBucket) {
+      this.log("Bucket does not exist in DB, creating a new one...");
       // Create a new bucket
       const newBucket = {
         instanceName: this.config.name,
@@ -228,29 +204,58 @@ export class MeteorS3 extends LogClass {
         region: this.config.region,
         createdAt: new Date(),
       };
+      await this.buckets.insertAsync(newBucket);
+    } else {
+      this.log("Bucket already exists in DB.");
+    }
+
+    const dbBucket = await this.buckets.findOneAsync({
+      instanceName: this.config.name,
+    });
+
+    let existsInS3 = false;
+
+    try {
+      await this.s3Client.send(
+        new HeadBucketCommand({ Bucket: dbBucket.bucketName })
+      );
+      existsInS3 = true;
+      this.log(`Bucket ${dbBucket.bucketName} already exists in S3.`);
+    } catch (e) {
+      if (e.name === "NotFound") {
+        this.log(`Bucket ${dbBucket.bucketName} does not exist in S3.`);
+        existsInS3 = false;
+      } else {
+        throw e;
+      }
+    }
+
+    if (!existsInS3) {
       // Create the bucket in S3
+      this.log(`Creating bucket in S3: ${dbBucket.bucketName}`);
       try {
         await this.s3Client.send(
           new CreateBucketCommand({
-            Bucket: newBucket.bucketName,
+            Bucket: dbBucket.bucketName,
             CreateBucketConfiguration: {
-              LocationConstraint: this.config.region,
+              LocationConstraint: dbBucket.region,
             },
           })
         );
-        this.log(`Created new S3 bucket: ${newBucket.bucketName}`);
+        this.log(`Created new bucket in S3: ${dbBucket.bucketName}`);
       } catch (error) {
         console.error("Error creating S3 bucket:", error);
+        this.log("Cleaning up... removing bucket from database...");
+        await this.buckets.removeAsync({ instanceName: this.config.name });
         throw new Meteor.Error(
           "s3-bucket-creation",
           `Failed to create S3 bucket: ${error.message}`,
           error
         );
       }
-      await this.buckets.insertAsync(newBucket);
-      this.bucketName = newBucket.bucketName;
-      this.log(`Created new bucket: ${this.bucketName}`);
     }
+    this.bucketName = dbBucket.bucketName;
+    this.log(`Ensured a new bucket in DB and S3: ${this.bucketName}`);
   }
 
   /**

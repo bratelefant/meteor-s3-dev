@@ -139,8 +139,6 @@ describe("Test MeteorS3 class (Server)", function () {
       const bucketName = "test-bucket-12345";
       s3.config.name = bucketName;
 
-      sinon.stub(s3.buckets, "findOneAsync").resolves(null); // Mock no existing bucket
-      sinon.stub(s3.buckets, "insertAsync").resolves(); // Mock insert operation
       sinon.spy(s3.s3Client, "send");
 
       await s3.ensureBucket();
@@ -149,7 +147,6 @@ describe("Test MeteorS3 class (Server)", function () {
       expect(s3.bucketName).to.match(
         /^meteor-s3-test-bucket-12345-[a-z0-9]{6}$/
       );
-      expect(s3.buckets.insertAsync.calledOnce).to.be.true;
       expect(s3.s3Client.send.called).to.be.true;
     });
   });
