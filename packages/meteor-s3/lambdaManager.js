@@ -15,6 +15,8 @@ import {
 import { renderTemplate } from "./helper/templates";
 import crypto from "crypto";
 
+const lambdaFunctions = ["uploadHandler"]
+
 // --- Lambda deploy helpers -------------------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -113,34 +115,36 @@ export class LambdaManager extends LogClass {
     // Ensure that the Lambda function for this instance exists
     this.log("[ensureLambdaFunctions] Ensuring Lambda functions");
 
-    // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
-    try {
-      this.log(
-        "[ensureLambdaFunctions] Waiting for Lambda function to be ready"
-      );
-      await waitForLambdaReady(
-        this.lambdaClient,
-        `meteorS3-${this.meteorS3.config.name}-uploadHandler`,
-        { timeoutMs: 15000, pollMs: 700 }
-      );
-    } catch (_) {
-      this.log(`Lambda function not ready: ${_}`);
-    }
+    for (const func of lambdaFunctions) {
+      // Wait for Lambda to be ready before deploying, to avoid overlap if another startup just updated it
+      try {
+        this.log(
+          "[ensureLambdaFunctions] Waiting for Lambda function to be ready"
+        );
+        await waitForLambdaReady(
+          this.lambdaClient,
+          `meteorS3-${this.meteorS3.config.name}-${func}`,
+          { timeoutMs: 15000, pollMs: 700 }
+        );
+      } catch (_) {
+        this.log(`Lambda function not ready: ${_}`);
+      }
 
-    this.log("[ensureLambdaFunctions] Lambda function ready");
+      this.log("[ensureLambdaFunctions] Lambda function ready");
 
-    try {
-      await this.deployLambdaFunction("uploadHandler");
-      this.log(
-        `Lambda function for instance ${this.meteorS3.config.name} deployed successfully.`
-      );
-    } catch (error) {
-      console.error("Error deploying Lambda function:", error);
-      throw new Meteor.Error(
-        "lambda-deployment-error",
-        `Failed to deploy Lambda function: ${error.message}`,
-        error
-      );
+      try {
+        await this.deployLambdaFunction(func);
+        this.log(
+          `Lambda function ${func} for instance ${this.meteorS3.config.name} deployed successfully.`
+        );
+      } catch (error) {
+        console.error("Error deploying Lambda function:", error);
+        throw new Meteor.Error(
+          "lambda-deployment-error",
+          `Failed to deploy Lambda function: ${error.message}`,
+          error
+        );
+      }
     }
   }
 
