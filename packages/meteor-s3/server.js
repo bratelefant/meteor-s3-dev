@@ -78,7 +78,7 @@ export class MeteorS3 extends LogClass {
     this.onBeforeUpload = config.onBeforeUpload || (async (_fileDoc) => {});
     this.onAfterUpload = config.onAfterUpload || (async (_fileDoc) => {});
 
-    // actions are "upload", "download" or "delete"
+    // actions are "upload", "download" or "remove"
     this.onCheckPermissions =
       this.config.onCheckPermissions ||
       (async (fileDoc, action, _userId, _context) => {
@@ -639,7 +639,7 @@ export class MeteorS3 extends LogClass {
     // Check permissions before removing the file
     const hasPermission = await this.handlePermissionsCheck(
       fileDoc,
-      "delete",
+      "remove",
       userId,
       context
     );
@@ -647,7 +647,7 @@ export class MeteorS3 extends LogClass {
     if (!hasPermission) {
       throw new Meteor.Error(
         "s3-permission-denied",
-        "You do not have permission to delete this file."
+        "You do not have permission to remove this file."
       );
     }
 
@@ -661,8 +661,8 @@ export class MeteorS3 extends LogClass {
       await this.s3Client.send(new DeleteObjectCommand(params));
     } catch (error) {
       throw new Meteor.Error(
-        "s3-delete-failed",
-        `Failed to delete file from S3: ${error.message}`
+        "s3-remove-failed",
+        `Failed to remove file from S3: ${error.message}`
       );
     }
     await this.files.removeAsync(fileId);

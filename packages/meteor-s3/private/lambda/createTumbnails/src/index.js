@@ -1,6 +1,7 @@
-const AWS = require("aws-sdk");
+import AWS from "aws-sdk";
+import sharp from "sharp";
+
 const S3 = new AWS.S3();
-const sharp = require("sharp");
 
 const validExtensions = [
   ".jpg",
