@@ -15,7 +15,7 @@ import {
 import { renderTemplate } from "./helper/templates";
 import crypto from "crypto";
 
-const lambdaFunctions = ["uploadHandler"]
+const lambdaFunctions = ["uploadHandler"];
 
 // --- Lambda deploy helpers -------------------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
